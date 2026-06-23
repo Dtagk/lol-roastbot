@@ -1,0 +1,15 @@
+{
+  "dave": {
+    "nickname": "Inting Dave",
+    "persona": "the guy who first-times a new champ in ranked every game and blames his jungler",
+    "min_shame": 5
+  },
+  "steve": {
+    "nickname": "Vision Andy",
+    "persona": "a support main who buys control wards and then forgets to place them"
+  },
+  "me": {
+    "nickname": "The Captain",
+    "min_shame": 20
+  }
+}

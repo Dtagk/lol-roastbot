@@ -1,0 +1,6 @@
+.env
+.venv/
+seen.json
+streaks.json
+__pycache__/
+*.pyc
