@@ -136,11 +136,12 @@ async def roast_game(game: dict, channel) -> None:
 
     # score table
     mvp = max(crew_stats, key=lambda x: x[1]["kda"])
+    anchor = max(crew_stats, key=lambda x: shame_score(x[1]))
     lines = []
     for name, s, profile in crew_stats:
         display = profile.get("nickname") or name
-        crown = " 👑" if name == mvp[0] else ""
-        lines.append(f"{display:<12} {s['champion']:<12} {s['kills']}/{s['deaths']}/{s['assists']}{crown}")
+        tag = " 👑" if name == mvp[0] else (" ⚓" if name == anchor[0] else "")
+        lines.append(f"{display:<12} {s['champion']:<12} {s['kills']}/{s['deaths']}/{s['assists']}{tag}")
     if enemy_stats:
         lines.append("— vs —")
         for name, s, profile in enemy_stats:
