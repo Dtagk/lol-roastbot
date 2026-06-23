@@ -113,6 +113,38 @@ async def roast_persona(name: str, ollama_url: str, model: str,
     return data["response"].strip()
 
 
+def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
+    profile = profile or {}
+    display = profile.get("nickname") or name
+    result = "won" if s["win"] else "lost"
+    persona_line = f"Context: {profile['persona']}.\n" if profile.get("persona") else ""
+    return (
+        f"You are an over-the-top hype bot for a League of Legends friend group. "
+        f"Write ONE short, absurdly glowing tribute (max 2 sentences, no preamble) "
+        f"about {display}'s last game. Go full sycophant — they are a god among players.\n\n"
+        f"{persona_line}"
+        f"Player: {display}\n"
+        f"Champion: {s['champion']} ({s['position']})\n"
+        f"Result: {result} in {s['duration_min']} min\n"
+        f"KDA: {s['kills']}/{s['deaths']}/{s['assists']} ({s['kda']})\n"
+        f"Damage dealt: {s['damage']}\n\n"
+        f"Glaze:"
+    )
+
+
+async def glaze(name: str, s: dict, ollama_url: str, model: str,
+                profile: dict | None = None) -> str:
+    payload = {"model": model,
+               "prompt": _glaze_prompt(name, s, profile),
+               "stream": False,
+               "options": {"temperature": 0.9, "num_predict": 80}}
+    async with aiohttp.ClientSession() as sess:
+        async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
+            r.raise_for_status()
+            data = await r.json()
+    return data["response"].strip()
+
+
 async def roast(name: str, s: dict, ollama_url: str, model: str,
                 profile: dict | None = None, streak: dict | None = None) -> str:
     payload = {"model": model,

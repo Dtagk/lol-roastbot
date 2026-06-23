@@ -11,7 +11,9 @@ import discord
 from discord.ext import tasks
 
 from lcu import LCUClient, LCUError, load_champion_map
-from roast import summarize, shame_score, roast, roast_persona
+import random
+
+from roast import summarize, shame_score, roast, roast_persona, glaze
 from crew import load_crew, profile_for, update_streak, lol_name_for_discord_id
 
 # --- config via env ---
@@ -164,21 +166,22 @@ async def roast_game(game: dict, channel) -> None:
     table = "\n".join(lines)
     await channel.send(f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
 
-    # roasts
-    posted = False
+    # ~10% chance: glaze the MVP instead of roasting everyone
+    if random.random() < 0.1:
+        mvp_name, mvp_s, mvp_profile = mvp
+        line = await glaze(mvp_name, mvp_s, OLLAMA_URL, OLLAMA_MODEL, mvp_profile)
+        display = mvp_profile.get("nickname") or mvp_name
+        mention = f"<@{mvp_profile['discord_id']}> " if mvp_profile.get("discord_id") else ""
+        await channel.send(f"✨ {mention}**{display}** carried so hard even I have to admit it.\n{line}")
+        return
+
+    # roast everyone
     for name, s, profile in crew_stats + enemy_stats:
-        threshold = profile.get("min_shame", MIN_SHAME)
-        roastable = shame_score(s) >= threshold
-        streak = update_streak(name, roastable)
-        if not roastable:
-            continue
+        streak = update_streak(name, True)
         line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
         display = profile.get("nickname") or name
         mention = f"<@{profile['discord_id']}> " if profile.get("discord_id") else ""
         await channel.send(f"🔥 {mention}**{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
-        posted = True
-    if not posted and not won:
-        await channel.send("Somehow nobody played badly enough to roast. Suspicious.")
 
 
 @client.event
