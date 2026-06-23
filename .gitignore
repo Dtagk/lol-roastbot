@@ -1,4 +1,5 @@
 .env
+crew.json
 .venv/
 seen.json
 streaks.json
