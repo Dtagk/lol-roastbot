@@ -1,0 +1,14 @@
+services:
+  roastbot:
+    build: .
+    container_name: roastbot
+    env_file: .env
+    environment:
+      LCU_HOST: host.docker.internal
+      OLLAMA_URL: http://host.docker.internal:11434
+      LCU_LOCKFILE: /lockfile
+    volumes:
+      - "C:/Riot Games/League of Legends/lockfile:/lockfile:ro"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

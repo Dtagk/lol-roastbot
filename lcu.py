@@ -62,7 +62,8 @@ class LCUClient:
             headers={"Authorization": f"Basic {token}"},
             connector=aiohttp.TCPConnector(ssl=ctx),
         )
-        self._base = f"https://127.0.0.1:{port}"
+        lcu_host = os.environ.get("LCU_HOST", "127.0.0.1")
+        self._base = f"https://{lcu_host}:{port}"
         return self
 
     async def __aexit__(self, *exc):
