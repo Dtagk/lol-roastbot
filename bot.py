@@ -48,11 +48,25 @@ self_puuid: str = ""
 last_seen: int | None = seen.get("last_game_id")
 
 
+async def _warmup_ollama():
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as s:
+            await s.post(f"{OLLAMA_URL}/api/generate", json={
+                "model": OLLAMA_MODEL, "prompt": "hi", "stream": False,
+                "options": {"num_predict": 1}
+            })
+        print(f"Ollama model {OLLAMA_MODEL} warmed up")
+    except Exception as e:
+        print(f"Ollama warmup failed: {e}")
+
+
 @client.event
 async def on_ready():
     global self_puuid, last_seen
     print(f"Logged in as {client.user}")
     await load_champion_map()
+    await _warmup_ollama()
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
             self_puuid = await lcu.current_puuid()
