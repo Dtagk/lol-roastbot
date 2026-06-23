@@ -2,6 +2,14 @@
 from __future__ import annotations
 
 import aiohttp
+import re
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _clean(text: str) -> str:
+    """Strip any leaked reasoning block and surrounding whitespace."""
+    return _THINK_RE.sub("", text).strip()
 
 
 def _normalize_position(p: dict) -> str:
@@ -105,12 +113,12 @@ async def roast_persona(name: str, ollama_url: str, model: str,
     payload = {"model": model,
                "prompt": _persona_prompt(name, profile, reason),
                "stream": False,
-               "options": {"temperature": 0.9, "num_predict": 80}}
+               "options": {"temperature": 0.9, "num_predict": 400}, "think": "low"}
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
             data = await r.json()
-    return data["response"].strip()
+    return _clean(data.get("response", "")) or _clean(data.get("thinking", ""))
 
 
 def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
@@ -137,12 +145,12 @@ async def glaze(name: str, s: dict, ollama_url: str, model: str,
     payload = {"model": model,
                "prompt": _glaze_prompt(name, s, profile),
                "stream": False,
-               "options": {"temperature": 0.9, "num_predict": 80}}
+               "options": {"temperature": 0.9, "num_predict": 400}, "think": "low"}
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
             data = await r.json()
-    return data["response"].strip()
+    return _clean(data.get("response", "")) or _clean(data.get("thinking", ""))
 
 
 async def roast(name: str, s: dict, ollama_url: str, model: str,
@@ -150,9 +158,9 @@ async def roast(name: str, s: dict, ollama_url: str, model: str,
     payload = {"model": model,
                "prompt": _prompt(name, s, profile, streak),
                "stream": False,
-               "options": {"temperature": 0.9, "num_predict": 80}}
+               "options": {"temperature": 0.9, "num_predict": 400}, "think": "low"}
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
             data = await r.json()
-    return data["response"].strip()
+    return _clean(data.get("response", "")) or _clean(data.get("thinking", ""))

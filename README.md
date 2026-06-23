@@ -5,9 +5,10 @@ Discord bot that polls the League of Legends client after each game and posts Ol
 ## How it works
 
 - Polls the LCU match history every 2 minutes (`POLL_SECONDS`)
-- For each new game, posts a score table with KDA and an MVP crown
-- Roasts anyone whose shame score (KDA + damage ratios) clears their threshold
-- Also responds with a roast when @mentioned in Discord
+- For each new game, posts a score table with KDA, a 👑 MVP crown, and a ⚓ anchor
+- Roasts the worst player plus anyone over their own shame threshold, capped at 3
+- ~10% of games it glazes the MVP instead of roasting anyone
+- Also responds when @mentioned: stats-based roast if the target played the latest game, otherwise a persona-only roast driven by whatever reason you give
 
 ## Setup
 
@@ -79,9 +80,9 @@ Roasts are gated by a per-player `min_shame` threshold (default `MIN_SHAME`). Sc
 
 | Factor | Points |
 |--------|--------|
-| KDA < 1.0 | +20 |
-| KDA < 0.5 | +10 |
+| Each death | +3 |
+| KDA < 1.0 | +10 |
 | Damage/min < 400 | +10 |
-| Damage/min < 200 | +10 |
 | Damage taken > 2× dealt | +10 |
-| Damage taken > 4× dealt | +10 |
+
+The single worst player is always roasted even if below threshold; everyone else needs to clear their own `min_shame`. Max 3 roasts per game.

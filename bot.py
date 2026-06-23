@@ -20,7 +20,7 @@ from crew import load_crew, profile_for, update_streak, lol_name_for_discord_id
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "120"))
 MIN_SHAME = int(os.environ.get("MIN_SHAME", "10"))
 LCU_LOCKFILE = os.environ.get("LCU_LOCKFILE")  # optional override
@@ -175,8 +175,27 @@ async def roast_game(game: dict, channel) -> None:
         await channel.send(f"✨ {mention}**{display}** carried so hard even I have to admit it.\n{line}")
         return
 
-    # roast everyone
-    for name, s, profile in crew_stats + enemy_stats:
+    # pick who to roast: the single worst, plus anyone over their own
+    # min_shame threshold, capped at 3 total (descending shame).
+    candidates = crew_stats + enemy_stats
+    ranked = sorted(candidates, key=lambda x: shame_score(x[1]), reverse=True)
+
+    targets = []
+    for name, s, profile in ranked:
+        threshold = profile.get("min_shame", MIN_SHAME)
+        is_worst = not targets  # first in ranked order is the worst
+        if is_worst or shame_score(s) >= threshold:
+            targets.append((name, s, profile))
+        if len(targets) == 3:
+            break
+
+    # streaks: roastable = made the target list
+    target_names = {t[0] for t in targets}
+    for name, s, profile in candidates:
+        if name not in target_names:
+            update_streak(name, False)
+
+    for name, s, profile in targets:
         streak = update_streak(name, True)
         line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
         display = profile.get("nickname") or name
@@ -219,7 +238,8 @@ async def on_message(message):
         reason = reason.replace(word, "").strip()
     reason = reason.strip()
 
-    # try to get latest game stats, fall back to persona-only
+    # Look for the target in the latest game. If they aren't in it, roast
+    # purely from their persona + whatever reason was given in the message.
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
             games = await lcu.recent_games(0, 1)
@@ -227,22 +247,27 @@ async def on_message(message):
     except LCUError:
         game = None
 
+    p = None
     if game:
         parts = LCUClient.participants(game)
         duration = game.get("gameDuration", 0)
         p = next(
-            (x for x in parts if (x["riotIdGameName"] or x["summonerName"]).lower() == target_lol),
+            (x for x in parts
+             if (x["riotIdGameName"] or x["summonerName"]).lower() == target_lol),
             None,
         )
-    else:
-        p = None
 
     if p:
+        # target played the latest game -> stats-based roast
         s = summarize(p, duration)
         streak = update_streak(target_lol, True)
         line = await roast(target_lol, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
-        await message.channel.send(f"🔥 {mention} **{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
+        await message.channel.send(
+            f"🔥 {mention} **{display}** — {s['champion']} "
+            f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}"
+        )
     else:
+        # not in the latest game -> persona-only roast, driven by the reason
         line = await roast_persona(target_lol, OLLAMA_URL, OLLAMA_MODEL, profile, reason)
         await message.channel.send(f"🔥 {mention} **{display}**\n{line}")
 
