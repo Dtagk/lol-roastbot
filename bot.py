@@ -11,7 +11,7 @@ import discord
 from discord.ext import tasks
 
 from lcu import LCUClient, LCUError, load_champion_map
-from roast import summarize, shame_score, roast
+from roast import summarize, shame_score, roast, roast_persona
 from crew import load_crew, profile_for, update_streak, lol_name_for_discord_id
 
 # --- config via env ---
@@ -188,41 +188,60 @@ async def on_message(message):
     if client.user not in message.mentions:
         return
 
-    lol_name = lol_name_for_discord_id(CREW_CFG, message.author.id)
-    if not lol_name:
-        await message.channel.send(f"I don't know who you are. Get good first.")
+    # find the target: first mentioned crew member that isn't the bot, else the sender
+    target_lol = None
+    for u in message.mentions:
+        if u == client.user:
+            continue
+        name = lol_name_for_discord_id(CREW_CFG, u.id)
+        if name:
+            target_lol = name
+            target_discord_id = u.id
+            break
+    if not target_lol:
+        target_lol = lol_name_for_discord_id(CREW_CFG, message.author.id)
+        target_discord_id = message.author.id
+
+    if not target_lol:
+        await message.channel.send("I don't know who you are. Get good first.")
         return
 
-    profile = profile_for(CREW_CFG, lol_name)
-    display = profile.get("nickname") or lol_name
-    await message.channel.send(f"On it, {display}...")
+    profile = profile_for(CREW_CFG, target_lol)
+    display = profile.get("nickname") or target_lol
+    mention = f"<@{target_discord_id}>"
 
+    # extract reason from message (everything after the mentions)
+    reason = message.clean_content
+    for word in [f"@{u.display_name}" for u in message.mentions]:
+        reason = reason.replace(word, "").strip()
+    reason = reason.strip()
+
+    # try to get latest game stats, fall back to persona-only
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
             games = await lcu.recent_games(0, 1)
-            if not games:
-                await message.channel.send("No recent games found.")
-                return
-            game = await lcu.game(games[0]["gameId"])
-    except LCUError as e:
-        await message.channel.send(f"League client not reachable: {e}")
-        return
+            game = await lcu.game(games[0]["gameId"]) if games else None
+    except LCUError:
+        game = None
 
-    parts = LCUClient.participants(game)
-    duration = game.get("gameDuration", 0)
-    p = next(
-        (x for x in parts if (x["riotIdGameName"] or x["summonerName"]).lower() == lol_name),
-        None,
-    )
-    if p is None:
-        await message.channel.send(f"Couldn't find {display} in their latest game.")
-        return
+    if game:
+        parts = LCUClient.participants(game)
+        duration = game.get("gameDuration", 0)
+        p = next(
+            (x for x in parts if (x["riotIdGameName"] or x["summonerName"]).lower() == target_lol),
+            None,
+        )
+    else:
+        p = None
 
-    s = summarize(p, duration)
-    streak = update_streak(lol_name, True)
-    line = await roast(lol_name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
-    mention = f"<@{message.author.id}>"
-    await message.channel.send(f"🔥 {mention} **{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
+    if p:
+        s = summarize(p, duration)
+        streak = update_streak(target_lol, True)
+        line = await roast(target_lol, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
+        await message.channel.send(f"🔥 {mention} **{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
+    else:
+        line = await roast_persona(target_lol, OLLAMA_URL, OLLAMA_MODEL, profile, reason)
+        await message.channel.send(f"🔥 {mention} **{display}**\n{line}")
 
 
 if __name__ == "__main__":

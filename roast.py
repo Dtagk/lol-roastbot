@@ -85,6 +85,34 @@ def _prompt(name: str, s: dict, profile: dict | None = None,
     )
 
 
+def _persona_prompt(name: str, profile: dict, reason: str = "") -> str:
+    display = profile.get("nickname") or name
+    persona_line = ""
+    if profile.get("persona"):
+        persona_line = f"Context: they are known as {profile['persona']}.\n"
+    reason_line = f"Reason for roast: {reason}\n" if reason else ""
+    return (
+        f"You are a witty Discord roast bot for a League of Legends friend group. "
+        f"Write ONE short, savage-but-friendly roast (max 2 sentences, no preamble) "
+        f"about {display}. Be funny, not genuinely mean.\n\n"
+        f"{persona_line}{reason_line}"
+        f"Roast:"
+    )
+
+
+async def roast_persona(name: str, ollama_url: str, model: str,
+                        profile: dict, reason: str = "") -> str:
+    payload = {"model": model,
+               "prompt": _persona_prompt(name, profile, reason),
+               "stream": False,
+               "options": {"temperature": 0.9, "num_predict": 80}}
+    async with aiohttp.ClientSession() as sess:
+        async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
+            r.raise_for_status()
+            data = await r.json()
+    return data["response"].strip()
+
+
 async def roast(name: str, s: dict, ollama_url: str, model: str,
                 profile: dict | None = None, streak: dict | None = None) -> str:
     payload = {"model": model,
