@@ -62,7 +62,8 @@ def shame_score(s: dict) -> int:
 
 
 def _prompt(
-    name: str, s: dict, profile: dict | None = None, streak: dict | None = None
+    name: str, s: dict, profile: dict | None = None, streak: dict | None = None,
+    history: dict | None = None,
 ) -> str:
     profile = profile or {}
     result = "won" if s["win"] else "lost"
@@ -74,19 +75,34 @@ def _prompt(
             f"Context on this player: they are known as {profile['persona']}. "
             f"Lean into that reputation.\n"
         )
+    personal_line = ""
+    if profile.get("personal"):
+        personal_line = f"Personal facts: {'; '.join(profile['personal'])}.\n"
     streak_line = ""
     if streak and streak.get("streak", 0) > 1:
         streak_line = (
             f"This is their {streak['streak']} roastable game in a row "
             f"(worst ever: {streak['worst_streak']}). Mock the streak.\n"
         )
+    history_line = ""
+    if history:
+        parts = [f"last {history['games_tracked']} games avg: {history['avg_deaths']} deaths, KDA {history['avg_kda']}"]
+        if history.get("favorite_champ"):
+            parts.append(
+                f"most played: {history['favorite_champ']} ({history['fav_record']}, "
+                f"{history['fav_avg_deaths']} deaths/game)"
+            )
+        if history.get("worst"):
+            w = history["worst"]
+            parts.append(f"worst game ever: {w['deaths']} deaths on {w['champ']}")
+        history_line = "History: " + "; ".join(parts) + ".\n"
 
     return (
         f"You are a witty Discord roast bot for a League of Legends friend group. "
         f"Write ONE short, savage-but-friendly roast (max 2 sentences, no preamble) "
         f"about {display}'s last game. Be funny, not genuinely mean. "
         f"Reference the actual stats.\n\n"
-        f"{persona_line}{streak_line}"
+        f"{persona_line}{personal_line}{streak_line}{history_line}"
         f"Player: {display}\n"
         f"Champion: {s['champion']} ({s['position']})\n"
         f"Result: {result} in {s['duration_min']} min\n"
@@ -97,27 +113,44 @@ def _prompt(
     )
 
 
-def _persona_prompt(name: str, profile: dict, reason: str = "") -> str:
+def _persona_prompt(name: str, profile: dict, reason: str = "",
+                    history: dict | None = None) -> str:
     display = profile.get("nickname") or name
     persona_line = ""
     if profile.get("persona"):
         persona_line = f"Context: they are known as {profile['persona']}.\n"
+    personal_line = ""
+    if profile.get("personal"):
+        personal_line = f"Personal facts: {'; '.join(profile['personal'])}.\n"
     reason_line = f"Reason for roast: {reason}\n" if reason else ""
+    history_line = ""
+    if history:
+        parts = [f"last {history['games_tracked']} games avg: {history['avg_deaths']} deaths, KDA {history['avg_kda']}"]
+        if history.get("favorite_champ"):
+            parts.append(
+                f"most played: {history['favorite_champ']} ({history['fav_record']}, "
+                f"{history['fav_avg_deaths']} deaths/game)"
+            )
+        if history.get("worst"):
+            w = history["worst"]
+            parts.append(f"worst game ever: {w['deaths']} deaths on {w['champ']}")
+        history_line = "History: " + "; ".join(parts) + ".\n"
     return (
         f"You are a witty Discord roast bot for a League of Legends friend group. "
         f"Write ONE short, savage-but-friendly roast (max 2 sentences, no preamble) "
         f"about {display}. Be funny, not genuinely mean.\n\n"
-        f"{persona_line}{reason_line}"
+        f"{persona_line}{personal_line}{reason_line}{history_line}"
         f"Roast:"
     )
 
 
 async def roast_persona(
-    name: str, ollama_url: str, model: str, profile: dict, reason: str = ""
+    name: str, ollama_url: str, model: str, profile: dict, reason: str = "",
+    history: dict | None = None,
 ) -> str:
     payload = {
         "model": model,
-        "prompt": _persona_prompt(name, profile, reason),
+        "prompt": _persona_prompt(name, profile, reason, history),
         "stream": False,
         "options": {"temperature": 0.9, "num_predict": 600},
         "think": False,
@@ -172,10 +205,11 @@ async def roast(
     model: str,
     profile: dict | None = None,
     streak: dict | None = None,
+    history: dict | None = None,
 ) -> str:
     payload = {
         "model": model,
-        "prompt": _prompt(name, s, profile, streak),
+        "prompt": _prompt(name, s, profile, streak, history),
         "stream": False,
         "options": {"temperature": 0.9, "num_predict": 600},
         "think": False,

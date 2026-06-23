@@ -11,6 +11,7 @@ services:
       - "C:/Riot Games/League of Legends/lockfile:/lockfile:ro"
       - "./seen.json:/app/seen.json"
       - "./streaks.json:/app/streaks.json"
+      - "./history.json:/app/history.json"
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"

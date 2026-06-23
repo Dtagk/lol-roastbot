@@ -15,6 +15,7 @@ import random
 
 from roast import summarize, shame_score, roast, roast_persona, glaze
 from crew import load_crew, profile_for, update_streak, lol_name_for_discord_id
+from history import record_game, get_summary
 
 # --- config via env ---
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
@@ -197,8 +198,9 @@ async def roast_game(game: dict, channel) -> None:
             update_streak(name, False)
 
     for name, s, profile in targets:
+        record_game(name, s)
         streak = update_streak(name, True)
-        line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
+        line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak, get_summary(name))
         display = profile.get("nickname") or name
         mention = f"<@{profile['discord_id']}> " if profile.get("discord_id") else ""
         await channel.send(f"🔥 {mention}**{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
@@ -261,15 +263,16 @@ async def on_message(message):
     if p:
         # target played the latest game -> stats-based roast
         s = summarize(p, duration)
+        record_game(target_lol, s)
         streak = update_streak(target_lol, True)
-        line = await roast(target_lol, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
+        line = await roast(target_lol, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak, get_summary(target_lol))
         await message.channel.send(
             f"🔥 {mention} **{display}** — {s['champion']} "
             f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}"
         )
     else:
         # not in the latest game -> persona-only roast, driven by the reason
-        line = await roast_persona(target_lol, OLLAMA_URL, OLLAMA_MODEL, profile, reason)
+        line = await roast_persona(target_lol, OLLAMA_URL, OLLAMA_MODEL, profile, reason, get_summary(target_lol))
         await message.channel.send(f"🔥 {mention} **{display}**\n{line}")
 
 
