@@ -106,14 +106,35 @@ async def roast_game(game: dict, channel) -> None:
 
     teammates = [p for p in parts if p["teamId"] == my_team]
     won = me["win"]
-    header = "🏆 GG" if won else "💀 L"
-    posted = False
+    result = "GG" if won else "L"
+    mins = round(duration / 60)
+
+    # collect crew members who played
+    crew_stats = []
     for p in teammates:
         name = p["riotIdGameName"] or p["summonerName"]
         if CREW and name.lower() not in CREW:
             continue
         s = summarize(p, duration)
         profile = profile_for(CREW_CFG, name)
+        crew_stats.append((name, s, profile))
+
+    if not crew_stats:
+        return
+
+    # score table
+    mvp = max(crew_stats, key=lambda x: x[1]["kda"])
+    lines = []
+    for name, s, profile in crew_stats:
+        display = profile.get("nickname") or name
+        crown = " 👑" if name == mvp[0] else ""
+        lines.append(f"{display:<12} {s['champion']:<12} {s['kills']}/{s['deaths']}/{s['assists']}{crown}")
+    table = "\n".join(lines)
+    await channel.send(f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
+
+    # roasts
+    posted = False
+    for name, s, profile in crew_stats:
         threshold = profile.get("min_shame", MIN_SHAME)
         roastable = shame_score(s) >= threshold
         streak = update_streak(name, roastable)
@@ -122,13 +143,10 @@ async def roast_game(game: dict, channel) -> None:
         line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
         display = profile.get("nickname") or name
         mention = f"<@{profile['discord_id']}> " if profile.get("discord_id") else ""
-        await channel.send(
-            f"🔥 {mention}**{display}** — {s['champion']} "
-            f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}"
-        )
+        await channel.send(f"🔥 {mention}**{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
         posted = True
     if not posted and not won:
-        await channel.send(f"{header} — somehow nobody played badly enough to roast. Suspicious.")
+        await channel.send("Somehow nobody played badly enough to roast. Suspicious.")
 
 
 if __name__ == "__main__":
