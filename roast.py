@@ -1,4 +1,5 @@
 """Turn a participant stat line into a 'shame score' and an Ollama roast."""
+
 from __future__ import annotations
 
 import aiohttp
@@ -35,7 +36,9 @@ def summarize(p: dict, game_duration_s: int) -> dict:
     return {
         "champion": p["championName"],
         "win": p["win"],
-        "kills": k, "deaths": d, "assists": a,
+        "kills": k,
+        "deaths": d,
+        "assists": a,
         "kda": round(kda, 2),
         "damage": p["totalDamageDealtToChampions"],
         "damage_taken": p.get("totalDamageTaken", 0),
@@ -58,8 +61,9 @@ def shame_score(s: dict) -> int:
     return score
 
 
-def _prompt(name: str, s: dict, profile: dict | None = None,
-            streak: dict | None = None) -> str:
+def _prompt(
+    name: str, s: dict, profile: dict | None = None, streak: dict | None = None
+) -> str:
     profile = profile or {}
     result = "won" if s["win"] else "lost"
     display = profile.get("nickname") or name
@@ -108,12 +112,16 @@ def _persona_prompt(name: str, profile: dict, reason: str = "") -> str:
     )
 
 
-async def roast_persona(name: str, ollama_url: str, model: str,
-                        profile: dict, reason: str = "") -> str:
-    payload = {"model": model,
-               "prompt": _persona_prompt(name, profile, reason),
-               "stream": False,
-               "options": {"temperature": 0.9, "num_predict": 400}, "think": "low"}
+async def roast_persona(
+    name: str, ollama_url: str, model: str, profile: dict, reason: str = ""
+) -> str:
+    payload = {
+        "model": model,
+        "prompt": _persona_prompt(name, profile, reason),
+        "stream": False,
+        "options": {"temperature": 0.9, "num_predict": 400},
+        "think": "low",
+    }
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
@@ -140,12 +148,16 @@ def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
     )
 
 
-async def glaze(name: str, s: dict, ollama_url: str, model: str,
-                profile: dict | None = None) -> str:
-    payload = {"model": model,
-               "prompt": _glaze_prompt(name, s, profile),
-               "stream": False,
-               "options": {"temperature": 0.9, "num_predict": 400}, "think": "low"}
+async def glaze(
+    name: str, s: dict, ollama_url: str, model: str, profile: dict | None = None
+) -> str:
+    payload = {
+        "model": model,
+        "prompt": _glaze_prompt(name, s, profile),
+        "stream": False,
+        "options": {"temperature": 0.9, "num_predict": 400},
+        "think": "low",
+    }
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
@@ -153,12 +165,21 @@ async def glaze(name: str, s: dict, ollama_url: str, model: str,
     return _clean(data.get("response", "")) or _clean(data.get("thinking", ""))
 
 
-async def roast(name: str, s: dict, ollama_url: str, model: str,
-                profile: dict | None = None, streak: dict | None = None) -> str:
-    payload = {"model": model,
-               "prompt": _prompt(name, s, profile, streak),
-               "stream": False,
-               "options": {"temperature": 0.9, "num_predict": 400}, "think": "low"}
+async def roast(
+    name: str,
+    s: dict,
+    ollama_url: str,
+    model: str,
+    profile: dict | None = None,
+    streak: dict | None = None,
+) -> str:
+    payload = {
+        "model": model,
+        "prompt": _prompt(name, s, profile, streak),
+        "stream": False,
+        "options": {"temperature": 0.9, "num_predict": 400},
+        "think": "low",
+    }
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
