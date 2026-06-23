@@ -90,7 +90,7 @@ async def roast(name: str, s: dict, ollama_url: str, model: str,
     payload = {"model": model,
                "prompt": _prompt(name, s, profile, streak),
                "stream": False,
-               "options": {"temperature": 0.9}}
+               "options": {"temperature": 0.9, "num_predict": 80}}
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
