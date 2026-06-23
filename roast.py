@@ -38,19 +38,14 @@ def summarize(p: dict, game_duration_s: int) -> dict:
 
 def shame_score(s: dict) -> int:
     score = 0
+    score += s["deaths"] * 3
     if s["kda"] < 1.0:
-        score += 20
-    if s["kda"] < 0.5:
         score += 10
     dmg_per_min = s["damage"] / s["duration_min"]
     if dmg_per_min < 400:
         score += 10
-    if dmg_per_min < 200:
-        score += 10
     ratio = s["damage_taken"] / max(s["damage"], 1)
     if ratio > 2:
-        score += 10
-    if ratio > 4:
         score += 10
     return score
 
