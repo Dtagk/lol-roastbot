@@ -7,6 +7,29 @@ import re
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
+_CHAMP_BURNS = {
+    "Yasuo": "the champion of players who blame lag and wind",
+    "Yone": "Yasuo's brother, equally chosen by people who should be in therapy",
+    "Master Yi": "the ctrl+Z of League — brainless split-push and pray",
+    "Twitch": "a rat who thinks he's a hypercarry but just dies in the sewer before 6",
+    "Vayne": "the champion picked by people who want to feel skilled but int in the early game",
+    "Zed": "the flashy assassin of players who watched one montage and thought they're Faker",
+    "Teemo": "the most hated rat in the game, chosen by people with no friends",
+    "Tryndamere": "the undying split-pusher picked when you've already given up on teamwork",
+    "Akali": "the champion that looks broken in the hands of pros and trolls in yours",
+    "Riven": "the mechanical goddess of players who can't clear a wave without burning flash",
+    "Jinx": "the hypercarry of players who go 0/5 in lane then blame the support",
+    "Heimerdinger": "the most passive-aggressive pick in the game",
+    "Nasus": "the stacking simulator for players too scared to fight",
+    "Katarina": "the pentakill or 0/10 champion, no in-between",
+    "Rengar": "one-shot or be one-shot, the champion for people who hate nuance",
+    "Draven": "the ego champion — the only one with a passive that mocks you for dying",
+    "Irelia": "when someone wants to look skilled so they pick the 500-ability champion",
+    "Lee Sin": "the champion that separates scripters from people who watched YouTube",
+    "Singed": "running away from the fight and calling it 'macro play'",
+    "Kalista": "the champion that requires an ADC main, a support main, and a therapist",
+}
+
 
 def _clean(text: str) -> str:
     """Strip any leaked reasoning block and surrounding whitespace."""
@@ -96,13 +119,19 @@ def _prompt(
             w = history["worst"]
             parts.append(f"worst game ever: {w['deaths']} deaths on {w['champ']}")
         history_line = "History: " + "; ".join(parts) + ".\n"
+    champ_burn = _CHAMP_BURNS.get(s["champion"], "")
+    is_fav = s["champion"] in (profile.get("favorites") or [])
+    fav_note = f" This is one of their declared favorite champions — no excuses." if is_fav else ""
+    champ_line = f"Champion note: {s['champion']} is known as {champ_burn}.{fav_note} Lean into it.\n" if (champ_burn or is_fav) else ""
+    if not champ_burn and is_fav:
+        champ_line = f"Champion note: {s['champion']} is one of their declared mains — no excuses for this performance.\n"
 
     return (
         f"You are a witty Discord roast bot for a League of Legends friend group. "
         f"Write ONE short, savage-but-friendly roast (max 2 sentences, no preamble) "
         f"about {display}'s last game. Be funny, not genuinely mean. "
         f"Reference the actual stats.\n\n"
-        f"{persona_line}{personal_line}{streak_line}{history_line}"
+        f"{persona_line}{personal_line}{streak_line}{history_line}{champ_line}"
         f"Player: {display}\n"
         f"Champion: {s['champion']} ({s['position']})\n"
         f"Result: {result} in {s['duration_min']} min\n"
