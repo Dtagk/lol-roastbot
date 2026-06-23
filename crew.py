@@ -39,6 +39,15 @@ def profile_for(crew: dict[str, dict], name: str) -> dict:
     return crew.get(name.lower(), {})
 
 
+def lol_name_for_discord_id(crew: dict[str, dict], discord_id: str | int) -> str | None:
+    """Reverse-lookup: Discord ID → LoL game name (the crew.json key)."""
+    sid = str(discord_id)
+    for lol_name, profile in crew.items():
+        if str(profile.get("discord_id", "")) == sid:
+            return lol_name
+    return None
+
+
 # --- streaks: roastable games in a row per user ---
 
 def _load_streaks() -> dict[str, dict]:

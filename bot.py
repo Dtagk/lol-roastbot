@@ -12,7 +12,7 @@ from discord.ext import tasks
 
 from lcu import LCUClient, LCUError, load_champion_map
 from roast import summarize, shame_score, roast
-from crew import load_crew, profile_for, update_streak
+from crew import load_crew, profile_for, update_streak, lol_name_for_discord_id
 
 # --- config via env ---
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
@@ -122,6 +122,18 @@ async def roast_game(game: dict, channel) -> None:
     if not crew_stats:
         return
 
+    # crew members on the enemy team (custom games)
+    enemy_stats = []
+    for p in parts:
+        if p["teamId"] == my_team:
+            continue
+        name = p["riotIdGameName"] or p["summonerName"]
+        if CREW and name.lower() not in CREW:
+            continue
+        s = summarize(p, duration)
+        profile = profile_for(CREW_CFG, name)
+        enemy_stats.append((name, s, profile))
+
     # score table
     mvp = max(crew_stats, key=lambda x: x[1]["kda"])
     lines = []
@@ -129,12 +141,17 @@ async def roast_game(game: dict, channel) -> None:
         display = profile.get("nickname") or name
         crown = " 👑" if name == mvp[0] else ""
         lines.append(f"{display:<12} {s['champion']:<12} {s['kills']}/{s['deaths']}/{s['assists']}{crown}")
+    if enemy_stats:
+        lines.append("— vs —")
+        for name, s, profile in enemy_stats:
+            display = profile.get("nickname") or name
+            lines.append(f"{display:<12} {s['champion']:<12} {s['kills']}/{s['deaths']}/{s['assists']}")
     table = "\n".join(lines)
     await channel.send(f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
 
     # roasts
     posted = False
-    for name, s, profile in crew_stats:
+    for name, s, profile in crew_stats + enemy_stats:
         threshold = profile.get("min_shame", MIN_SHAME)
         roastable = shame_score(s) >= threshold
         streak = update_streak(name, roastable)
@@ -147,6 +164,50 @@ async def roast_game(game: dict, channel) -> None:
         posted = True
     if not posted and not won:
         await channel.send("Somehow nobody played badly enough to roast. Suspicious.")
+
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+    if client.user not in message.mentions:
+        return
+
+    lol_name = lol_name_for_discord_id(CREW_CFG, message.author.id)
+    if not lol_name:
+        await message.channel.send(f"I don't know who you are. Get good first.")
+        return
+
+    profile = profile_for(CREW_CFG, lol_name)
+    display = profile.get("nickname") or lol_name
+    await message.channel.send(f"On it, {display}...")
+
+    try:
+        async with LCUClient(LCU_LOCKFILE) as lcu:
+            games = await lcu.recent_games(0, 1)
+            if not games:
+                await message.channel.send("No recent games found.")
+                return
+            game = await lcu.game(games[0]["gameId"])
+    except LCUError as e:
+        await message.channel.send(f"League client not reachable: {e}")
+        return
+
+    parts = LCUClient.participants(game)
+    duration = game.get("gameDuration", 0)
+    p = next(
+        (x for x in parts if (x["riotIdGameName"] or x["summonerName"]).lower() == lol_name),
+        None,
+    )
+    if p is None:
+        await message.channel.send(f"Couldn't find {display} in their latest game.")
+        return
+
+    s = summarize(p, duration)
+    streak = update_streak(lol_name, True)
+    line = await roast(lol_name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak)
+    mention = f"<@{message.author.id}>"
+    await message.channel.send(f"🔥 {mention} **{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
 
 
 if __name__ == "__main__":

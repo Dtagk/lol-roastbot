@@ -9,6 +9,8 @@ services:
       LCU_LOCKFILE: /lockfile
     volumes:
       - "C:/Riot Games/League of Legends/lockfile:/lockfile:ro"
+      - "./seen.json:/app/seen.json"
+      - "./streaks.json:/app/streaks.json"
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"

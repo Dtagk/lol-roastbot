@@ -29,30 +29,29 @@ def summarize(p: dict, game_duration_s: int) -> dict:
         "win": p["win"],
         "kills": k, "deaths": d, "assists": a,
         "kda": round(kda, 2),
-        "cs": p["totalMinionsKilled"] + p.get("neutralMinionsKilled", 0),
-        "cs_per_min": round((p["totalMinionsKilled"] + p.get("neutralMinionsKilled", 0)) / mins, 1),
         "damage": p["totalDamageDealtToChampions"],
-        "vision": p["visionScore"],
-        "gold": p["goldEarned"],
+        "damage_taken": p.get("totalDamageTaken", 0),
         "position": _normalize_position(p),
         "duration_min": round(mins, 1),
     }
 
 
 def shame_score(s: dict) -> int:
-    """Higher = more roastable. Purely heuristic."""
     score = 0
-    score += s["deaths"] * 3
     if s["kda"] < 1.0:
-        score += 15
-    if s["cs_per_min"] < 4 and s["position"] != "UTILITY":
+        score += 20
+    if s["kda"] < 0.5:
         score += 10
-    if s["vision"] < 10 and s["position"] == "UTILITY":
+    dmg_per_min = s["damage"] / s["duration_min"]
+    if dmg_per_min < 400:
         score += 10
-    if not s["win"]:
-        score += 5
-    if s["kills"] == 0:
-        score += 8
+    if dmg_per_min < 200:
+        score += 10
+    ratio = s["damage_taken"] / max(s["damage"], 1)
+    if ratio > 2:
+        score += 10
+    if ratio > 4:
+        score += 10
     return score
 
 
@@ -85,9 +84,8 @@ def _prompt(name: str, s: dict, profile: dict | None = None,
         f"Champion: {s['champion']} ({s['position']})\n"
         f"Result: {result} in {s['duration_min']} min\n"
         f"KDA: {s['kills']}/{s['deaths']}/{s['assists']} ({s['kda']})\n"
-        f"CS/min: {s['cs_per_min']}\n"
-        f"Damage to champs: {s['damage']}\n"
-        f"Vision score: {s['vision']}\n\n"
+        f"Damage dealt: {s['damage']}\n"
+        f"Damage taken: {s['damage_taken']}\n\n"
         f"Roast:"
     )
 

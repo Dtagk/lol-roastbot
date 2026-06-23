@@ -127,8 +127,7 @@ class LCUClient:
                 "totalMinionsKilled": st.get("totalMinionsKilled", 0),
                 "neutralMinionsKilled": st.get("neutralMinionsKilled", 0),
                 "totalDamageDealtToChampions": st.get("totalDamageDealtToChampions", 0),
-                "visionScore": st.get("visionScore", 0),
-                "goldEarned": st.get("goldEarned", 0),
+                "totalDamageTaken": st.get("totalDamageTaken", 0),
                 "teamPosition": tl.get("lane", ""),
                 "individualPosition": tl.get("role", ""),
             })
