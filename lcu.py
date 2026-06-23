@@ -34,7 +34,7 @@ def read_lockfile(path: pathlib.Path | None = None) -> tuple[int, str]:
     Format: ProcessName:PID:port:password:protocol
     """
     path = path or _default_lockfile()
-    if not path.exists():
+    if not path.is_file():
         raise LCUError(
             f"lockfile not found at {path}. Is the League client running? "
             f"Set LCU_LOCKFILE to its path if installed elsewhere."

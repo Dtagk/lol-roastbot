@@ -119,14 +119,14 @@ async def roast_persona(
         "model": model,
         "prompt": _persona_prompt(name, profile, reason),
         "stream": False,
-        "options": {"temperature": 0.9, "num_predict": 400},
-        "think": "low",
+        "options": {"temperature": 0.9, "num_predict": 600},
+        "think": False,
     }
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
             data = await r.json()
-    return _clean(data.get("response", "")) or _clean(data.get("thinking", ""))
+    return _clean(data.get("response", ""))
 
 
 def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
@@ -155,14 +155,14 @@ async def glaze(
         "model": model,
         "prompt": _glaze_prompt(name, s, profile),
         "stream": False,
-        "options": {"temperature": 0.9, "num_predict": 400},
-        "think": "low",
+        "options": {"temperature": 0.9, "num_predict": 600},
+        "think": False,
     }
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
             data = await r.json()
-    return _clean(data.get("response", "")) or _clean(data.get("thinking", ""))
+    return _clean(data.get("response", ""))
 
 
 async def roast(
@@ -177,11 +177,11 @@ async def roast(
         "model": model,
         "prompt": _prompt(name, s, profile, streak),
         "stream": False,
-        "options": {"temperature": 0.9, "num_predict": 400},
-        "think": "low",
+        "options": {"temperature": 0.9, "num_predict": 600},
+        "think": False,
     }
     async with aiohttp.ClientSession() as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()
             data = await r.json()
-    return _clean(data.get("response", "")) or _clean(data.get("thinking", ""))
+    return _clean(data.get("response", ""))
