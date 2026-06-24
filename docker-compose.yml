@@ -25,9 +25,9 @@ services:
     environment:
       LCU_HOST: host.docker.internal
       OLLAMA_URL: http://ollama:11434
-      LCU_LOCKFILE: /lockfile
+      LCU_LOCKFILE: /lol/lockfile
     volumes:
-      - "C:/Riot Games/League of Legends/lockfile:/lockfile:ro"
+      - "C:/Riot Games/League of Legends:/lol:ro"
       - "./seen.json:/app/seen.json"
       - "./streaks.json:/app/streaks.json"
       - "./history.json:/app/history.json"
