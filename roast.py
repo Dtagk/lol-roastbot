@@ -40,7 +40,7 @@ async def _generate(
     ollama_url: str,
     model: str,
     prompt: str,
-    num_predict: int = 400,
+    num_predict: int = 600,
     temperature: float = 1.0,
     repeat_penalty: float = 1.3,
     presence_penalty: float = 0.6,
