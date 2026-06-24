@@ -356,7 +356,8 @@ async def on_message(message):
             async with LCUClient(LCU_LOCKFILE) as lcu:
                 games = await lcu.recent_games(0, 1)
                 if games:
-                    await roast_game(games[0], channel)
+                    full = await lcu.game(games[0]["gameId"])
+                    await roast_game(full, channel)
                 else:
                     await channel.send("no games found.")
         except LCUError:
