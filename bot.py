@@ -359,8 +359,8 @@ async def on_message(message):
                     await roast_game(games[0], channel)
                 else:
                     await channel.send("no games found.")
-        except LCUError as e:
-            await channel.send(f"lcu error: {e}")
+        except LCUError:
+            await channel.send("League client isn't running — open it first.")
         return
 
     # Build the target list from every mention that isn't the bot. Each becomes
