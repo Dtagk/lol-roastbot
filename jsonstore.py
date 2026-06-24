@@ -32,8 +32,6 @@ def load(path: pathlib.Path, default):
 
 
 def save(path: pathlib.Path, data) -> None:
-    """Write `data` as indented JSON. Atomic-ish via a temp file + replace so a
-    crash mid-write can't truncate the store."""
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    """Write `data` as indented JSON. Direct write — atomic rename breaks across
+    bind-mount boundaries (container overlay FS → host FS = EBUSY/EXDEV)."""
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
