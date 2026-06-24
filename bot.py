@@ -6,6 +6,9 @@ from __future__ import annotations
 import os
 import pathlib
 
+from dotenv import load_dotenv
+load_dotenv(encoding="utf-8-sig")
+
 import discord
 from discord.ext import tasks
 
