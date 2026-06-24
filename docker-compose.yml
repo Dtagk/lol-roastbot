@@ -1,23 +1,22 @@
 services:
-  # Self-contained Ollama service — removes the dependency on the
-  # gym-knowledge-repository / start_ollama.ps1. Comment this whole block out
-  # if you prefer to run Ollama natively on Windows (simpler GPU access) and
-  # set OLLAMA_URL back to http://host.docker.internal:11434 below.
-  ollama:
-    image: ollama/ollama
-    container_name: ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+  # Self-contained Ollama service — commented out because the gym-knowledge-repository
+  # ollama-local container already has GPU access and internet. To use this instead,
+  # uncomment and stop ollama-local first.
+  # ollama:
+  #   image: ollama/ollama
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_models:/root/.ollama
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
 
   roastbot:
     build: .
@@ -25,7 +24,7 @@ services:
     env_file: .env
     environment:
       LCU_HOST: host.docker.internal
-      OLLAMA_URL: http://ollama:11434
+      OLLAMA_URL: http://host.docker.internal:11434
       LCU_LOCKFILE: /lockfile
     volumes:
       - "C:/Riot Games/League of Legends/lockfile:/lockfile:ro"
@@ -35,11 +34,9 @@ services:
       - "./queue.json:/app/queue.json"
       - "./roast_lines.json:/app/roast_lines.json"
       - "./crew.json:/app/crew.json:ro"
-    depends_on:
-      - ollama
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-volumes:
-  ollama_models:
+# volumes:
+#   ollama_models:
