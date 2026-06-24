@@ -3,6 +3,7 @@ and roasts premade teammates via Ollama. No Riot dev key required.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import pathlib
 
@@ -136,6 +137,12 @@ async def poll():
         return
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
+            # populate self_puuid lazily if startup LCU was unavailable
+            global self_puuid
+            if not self_puuid:
+                self_puuid = await lcu.current_puuid()
+                print(f"poll: resolved self_puuid={self_puuid[:8]}...")
+
             # 1) retry anything queued from a previous tick (sends + regens)
             await drain_queue(lcu)
 
@@ -217,18 +224,6 @@ async def roast_game(game: dict, channel) -> None:
             lines.append(f"{display:<12} {s['champion']:<12} {s['kills']}/{s['deaths']}/{s['assists']}")
     table = "\n".join(lines)
 
-    # ~10% chance: glaze the MVP instead of roasting everyone
-    if random.random() < 0.1:
-        mvp_name, mvp_s, mvp_profile = mvp
-        # generate first; if this throws, nothing has been sent yet and the poll
-        # loop / drain_queue will regen the whole game on the next tick.
-        line = await glaze(mvp_name, mvp_s, OLLAMA_URL, OLLAMA_MODEL, mvp_profile)
-        display = mvp_profile.get("nickname") or mvp_name
-        mention = f"<@{mvp_profile['discord_id']}> " if mvp_profile.get("discord_id") else ""
-        await send_or_queue(channel, f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
-        await send_or_queue(channel, f"✨ {mention}**{display}** carried so hard even I have to admit it.\n{line}")
-        return
-
     # pick who to roast: the single worst, plus anyone over their own
     # min_shame threshold, capped at 3 total (descending shame).
     candidates = crew_stats + enemy_stats
@@ -241,6 +236,19 @@ async def roast_game(game: dict, channel) -> None:
             targets.append((name, s, profile))
         if len(targets) == 3:
             break
+
+    # 4+ crew: always glaze MVP + roast the 3 worst so nobody's left out.
+    # ≤3 crew: 10% random glaze instead of roasting (existing behaviour).
+    always_glaze = len(candidates) >= 4
+    print(f"candidates={len(candidates)} always_glaze={always_glaze}")
+    if not always_glaze and random.random() < 0.1:
+        mvp_name, mvp_s, mvp_profile = mvp
+        line = await glaze(mvp_name, mvp_s, OLLAMA_URL, OLLAMA_MODEL, mvp_profile)
+        display = mvp_profile.get("nickname") or mvp_name
+        mention = f"<@{mvp_profile['discord_id']}> " if mvp_profile.get("discord_id") else ""
+        await send_or_queue(channel, f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
+        await send_or_queue(channel, f"✨ {mention}**{display}** carried so hard even I have to admit it.\n{line}")
+        return
 
     # Generate all roast lines BEFORE sending or committing state, so an Ollama
     # failure aborts cleanly (re-raises -> regen queue) without half-posting.
@@ -255,7 +263,7 @@ async def roast_game(game: dict, channel) -> None:
                          f"🔥 {mention}**{display}** — {s['champion']} "
                          f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}"))
 
-    # All generation succeeded -> now commit state and send.
+    # All roast generation succeeded -> commit state and send.
     target_names = {t[0] for t in targets}
     for name, s, profile in candidates:
         if name not in target_names:
@@ -267,6 +275,18 @@ async def roast_game(game: dict, channel) -> None:
         update_streak(name, True)
         roast_memory.record_roast(name, line)
         await send_or_queue(channel, content)
+
+    # Glaze is a bonus — generate and send after roasts so a timeout/error
+    # here skips the glaze without losing the roasts.
+    if always_glaze:
+        try:
+            mvp_name, mvp_s, mvp_profile = mvp
+            glaze_line = await glaze(mvp_name, mvp_s, OLLAMA_URL, OLLAMA_MODEL, mvp_profile)
+            mvp_display = mvp_profile.get("nickname") or mvp_name
+            mvp_mention = f"<@{mvp_profile['discord_id']}> " if mvp_profile.get("discord_id") else ""
+            await send_or_queue(channel, f"✨ {mvp_mention}**{mvp_display}** carried so hard even I have to admit it.\n{glaze_line}")
+        except Exception as e:
+            print(f"glaze failed for {mvp[0]}: {e}")
 
 
 async def _recent_context(channel, exclude_id: int, limit: int = 6) -> str:
@@ -341,6 +361,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    print(f"on_message id={message.id} author={message.author} content={message.content[:80]!r}")
     # Support both direct user mention and role mention (e.g. @Var_Bot as a role)
     bot_mentioned = client.user in message.mentions
     if not bot_mentioned and message.role_mentions and message.guild:
@@ -353,18 +374,45 @@ async def on_message(message):
     # "fetch" command: immediately roast the latest game without waiting for poll
     import re as _re
     clean = _re.sub(r"<@[!&]?\d+>", "", message.content).strip()
+    if clean.lower() == "reload":
+        global CREW_CFG
+        CREW_CFG = load_crew()
+        await message.channel.send("crew reloaded.")
+        return
     if clean.lower() == "fetch":
         channel = client.get_channel(CHANNEL_ID)
-        try:
-            async with LCUClient(LCU_LOCKFILE) as lcu:
-                games = await lcu.recent_games(0, 1)
-                if games:
+        full = None
+        last_err = None
+        print(f"fetch triggered by {message.author}")
+        for attempt in range(3):
+            if attempt:
+                await asyncio.sleep(3)
+            try:
+                async with LCUClient(LCU_LOCKFILE) as lcu:
+                    global self_puuid
+                    if not self_puuid:
+                        self_puuid = await lcu.current_puuid()
+                        print(f"fetch: got self_puuid={self_puuid[:8]}...")
+                    games = await lcu.recent_games(0, 1)
+                    if not games:
+                        await channel.send("no games found.")
+                        return
                     full = await lcu.game(games[0]["gameId"])
-                    await roast_game(full, channel)
-                else:
-                    await channel.send("no games found.")
-        except LCUError:
-            await channel.send("League client isn't running — open it first.")
+                print(f"fetch: got game {games[0]['gameId']} on attempt {attempt}")
+                break
+            except LCUError as e:
+                print(f"fetch attempt {attempt}: {e}")
+                last_err = e
+        if full is None:
+            e = last_err
+            msg = "League client isn't running — open it first." if "lockfile not found" in str(e) else f"LCU not ready yet: {e}"
+            await channel.send(msg)
+            return
+        try:
+            await roast_game(full, channel)
+        except Exception as e:
+            print(f"fetch roast failed: {e}")
+            await channel.send("roast generation blew up, check logs.")
         return
 
     # Build the target list from every mention that isn't the bot. Each becomes
