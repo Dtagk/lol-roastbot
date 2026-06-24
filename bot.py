@@ -346,6 +346,23 @@ async def on_message(message):
     if not bot_mentioned:
         return
 
+    # "fetch" command: immediately roast the latest game without waiting for poll
+    clean = message.content
+    for u in message.mentions:
+        clean = clean.replace(f"<@{u.id}>", "").replace(f"<@!{u.id}>", "")
+    if clean.strip().lower() == "fetch":
+        channel = client.get_channel(CHANNEL_ID)
+        try:
+            async with LCUClient(LCU_LOCKFILE) as lcu:
+                games = await lcu.recent_games(0, 1)
+                if games:
+                    await roast_game(games[0], channel)
+                else:
+                    await channel.send("no games found.")
+        except LCUError as e:
+            await channel.send(f"lcu error: {e}")
+        return
+
     # Build the target list from every mention that isn't the bot. Each becomes
     # a (name, display, discord_id, profile) tuple. Crew members resolve to their
     # crew.json key + profile; everyone else falls back to their Discord display
