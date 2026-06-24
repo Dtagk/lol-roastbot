@@ -60,6 +60,16 @@ def _save_streaks(d: dict[str, dict]) -> None:
     STREAK_FILE.write_text(json.dumps(d, indent=2))
 
 
+def peek_streak(name: str) -> dict:
+    """Read-only projected streak (streak + 1) for feeding into prompts before committing."""
+    streaks = _load_streaks()
+    rec = streaks.get(name.lower(), {"streak": 0, "worst_streak": 0, "total_roasts": 0})
+    projected = dict(rec)
+    projected["streak"] = rec["streak"] + 1
+    projected["worst_streak"] = max(rec["worst_streak"], projected["streak"])
+    return projected
+
+
 def update_streak(name: str, roastable: bool) -> dict:
     """Record whether this user's latest game was roastable and return their
     running totals: {streak, worst_streak, total_roasts}.

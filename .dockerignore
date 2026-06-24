@@ -1,0 +1,11 @@
+# Keep runtime state and secrets out of the image — these are volume-mounted.
+.env
+crew.json
+seen.json
+streaks.json
+history.json
+queue.json
+.venv
+__pycache__/
+*.pyc
+.git

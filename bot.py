@@ -3,7 +3,6 @@ and roasts premade teammates via Ollama. No Riot dev key required.
 """
 from __future__ import annotations
 
-import json
 import os
 import pathlib
 
@@ -12,16 +11,18 @@ from discord.ext import tasks
 
 from lcu import LCUClient, LCUError, load_champion_map
 import random
-
-from roast import summarize, shame_score, roast, roast_persona, glaze, chat
-from crew import load_crew, profile_for, update_streak, lol_name_for_discord_id
+from roast import summarize, shame_score, roast, glaze, chat
+from crew import load_crew, profile_for, update_streak, peek_streak, lol_name_for_discord_id
 from history import record_game, get_summary
+import jsonstore
+import queue_store  # NEW: persistent dual-mode retry queue
+import roast_memory  # NEW: remembers recent roast lines to avoid repetition
 
 # --- config via env ---
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "120"))
 MIN_SHAME = int(os.environ.get("MIN_SHAME", "10"))
 LCU_LOCKFILE = os.environ.get("LCU_LOCKFILE")  # optional override
@@ -36,11 +37,11 @@ STATE = pathlib.Path(__file__).parent / "seen.json"
 
 
 def load_seen() -> dict:
-    return json.loads(STATE.read_text()) if STATE.exists() else {}
+    return jsonstore.load(STATE, {})
 
 
 def save_seen(d: dict) -> None:
-    STATE.write_text(json.dumps(d, indent=2))
+    jsonstore.save(STATE, d)
 
 
 intents = discord.Intents.default()
@@ -50,6 +51,38 @@ client = discord.Client(intents=intents)
 seen = load_seen()
 self_puuid: str = ""
 last_seen: int | None = seen.get("last_game_id")
+
+
+async def send_or_queue(channel, content: str, *, kind: str = "roast") -> None:
+    """Send a message; on failure queue it for re-send instead of dropping it.
+    Used for every roast and clapback so both paths are covered."""
+    try:
+        await channel.send(content)
+    except Exception as e:
+        print(f"send failed ({kind}): {e}")
+        queue_store.enqueue_send(channel.id, content, kind=kind, reason=str(e))
+
+
+async def drain_queue(lcu) -> None:
+    """Retry queued work at the top of each poll tick. `lcu` is an open LCUClient
+    used to re-fetch games for regen entries."""
+    for it in queue_store.pending():
+        channel = client.get_channel(it["channel_id"])
+        if channel is None:
+            continue
+        try:
+            if it["type"] == "send":
+                await channel.send(it["content"])
+            elif it["type"] == "regen":
+                full = await lcu.game(it["game_id"])
+                await roast_game(full, channel)  # may raise -> mark_attempt below
+            queue_store.resolve(it["id"])
+        except Exception as e:
+            queue_store.mark_attempt(it["id"], str(e))
+    for it in queue_store.dead():
+        label = it.get("kind") or it.get("type")
+        print(f"giving up on queued {label} after "
+              f"{it['attempts']} attempts: {it.get('last_error')}")
 
 
 async def _warmup_ollama() -> bool:
@@ -100,6 +133,10 @@ async def poll():
         return
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
+            # 1) retry anything queued from a previous tick (sends + regens)
+            await drain_queue(lcu)
+
+            # 2) handle new games
             games = await lcu.recent_games(0, 5)
             new = []
             for g in games:  # newest first
@@ -111,7 +148,11 @@ async def poll():
                     full = await lcu.game(g["gameId"])
                     await roast_game(full, channel)
                 except Exception as e:
+                    # Generation/fetch failed: queue the GAME ID so the next tick
+                    # re-fetches and regenerates. Advancing last_seen below is now
+                    # safe because the game isn't lost — it lives in the queue.
                     print(f"roast failed {g.get('gameId')}: {e}")
+                    queue_store.enqueue_regen(g["gameId"], channel.id, str(e))
     except LCUError as e:
         print(f"lcu poll failed (client closed?): {e}")
         return
@@ -128,7 +169,6 @@ async def roast_game(game: dict, channel) -> None:
         return
     my_team = me["teamId"]
     duration = game.get("gameDuration", 0)
-
     teammates = [p for p in parts if p["teamId"] == my_team]
     won = me["win"]
     result = "GG" if won else "L"
@@ -173,22 +213,23 @@ async def roast_game(game: dict, channel) -> None:
             display = profile.get("nickname") or name
             lines.append(f"{display:<12} {s['champion']:<12} {s['kills']}/{s['deaths']}/{s['assists']}")
     table = "\n".join(lines)
-    await channel.send(f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
 
     # ~10% chance: glaze the MVP instead of roasting everyone
     if random.random() < 0.1:
         mvp_name, mvp_s, mvp_profile = mvp
+        # generate first; if this throws, nothing has been sent yet and the poll
+        # loop / drain_queue will regen the whole game on the next tick.
         line = await glaze(mvp_name, mvp_s, OLLAMA_URL, OLLAMA_MODEL, mvp_profile)
         display = mvp_profile.get("nickname") or mvp_name
         mention = f"<@{mvp_profile['discord_id']}> " if mvp_profile.get("discord_id") else ""
-        await channel.send(f"✨ {mention}**{display}** carried so hard even I have to admit it.\n{line}")
+        await send_or_queue(channel, f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
+        await send_or_queue(channel, f"✨ {mention}**{display}** carried so hard even I have to admit it.\n{line}")
         return
 
     # pick who to roast: the single worst, plus anyone over their own
     # min_shame threshold, capped at 3 total (descending shame).
     candidates = crew_stats + enemy_stats
     ranked = sorted(candidates, key=lambda x: shame_score(x[1]), reverse=True)
-
     targets = []
     for name, s, profile in ranked:
         threshold = profile.get("min_shame", MIN_SHAME)
@@ -198,38 +239,99 @@ async def roast_game(game: dict, channel) -> None:
         if len(targets) == 3:
             break
 
-    # streaks: roastable = made the target list
+    # Generate all roast lines BEFORE sending or committing state, so an Ollama
+    # failure aborts cleanly (re-raises -> regen queue) without half-posting.
+    rendered = []
+    for name, s, profile in targets:
+        line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile,
+                           peek_streak(name), get_summary(name),
+                           avoid=roast_memory.recent_roasts(name))
+        display = profile.get("nickname") or name
+        mention = f"<@{profile['discord_id']}> " if profile.get("discord_id") else ""
+        rendered.append((name, s, profile, line,
+                         f"🔥 {mention}**{display}** — {s['champion']} "
+                         f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}"))
+
+    # All generation succeeded -> now commit state and send.
     target_names = {t[0] for t in targets}
     for name, s, profile in candidates:
         if name not in target_names:
             update_streak(name, False)
 
-    for name, s, profile in targets:
+    await send_or_queue(channel, f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")
+    for name, s, profile, line, content in rendered:
         record_game(name, s)
-        streak = update_streak(name, True)
-        line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak, get_summary(name))
-        display = profile.get("nickname") or name
-        mention = f"<@{profile['discord_id']}> " if profile.get("discord_id") else ""
-        await channel.send(f"🔥 {mention}**{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
+        update_streak(name, True)
+        roast_memory.record_roast(name, line)
+        await send_or_queue(channel, content)
 
 
 async def _recent_context(channel, exclude_id: int, limit: int = 6) -> str:
     """Last few channel messages as plain text for short-term clapback context.
-    Excludes the triggering message (added separately as the latest)."""
-    msgs = [m async for m in channel.history(limit=limit + 1)]
+    Excludes the triggering message (added separately as the latest) AND the
+    bot's own messages. The latter matters: the bot's prior roasts contain other
+    crew members' personal facts (from their profiles), and feeding those back in
+    as 'context' makes the model recycle one person's personal jabs onto a
+    different target. Only human chatter is legitimate clapback context."""
+    msgs = [m async for m in channel.history(limit=limit * 3 + 1)]
     msgs.reverse()  # oldest first
     lines = [
         f"{m.author.display_name}: {m.clean_content}"
         for m in msgs
-        if m.clean_content and m.id != exclude_id
+        if m.clean_content
+        and m.id != exclude_id
+        and m.author.id != client.user.id  # never feed our own roasts back as ammo
     ]
     return "\n".join(lines[-limit:])
+
+
+MAX_TAG_TARGETS = int(os.environ.get("MAX_TAG_TARGETS", "3"))
+
+
+async def _handle_target(message, lcu_game, duration, *, name, display,
+                         mention, profile, reason):
+    """Generate + send one clapback/roast for a single resolved target.
+    `name` is the lookup key (lowercased lol name, or the display name for a
+    non-crew user). Raises on generation failure so the caller can fall back."""
+    p = None
+    if lcu_game:
+        parts = LCUClient.participants(lcu_game)
+        p = next(
+            (x for x in parts
+             if (x["riotIdGameName"] or x["summonerName"]).lower() == name.lower()),
+            None,
+        )
+
+    if p:
+        # target played the latest game -> stats-based roast
+        s = summarize(p, duration)
+        line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile,
+                           peek_streak(name), get_summary(name),
+                           avoid=roast_memory.recent_roasts(name))
+        record_game(name, s)
+        update_streak(name, True)
+        roast_memory.record_roast(name, line)
+        content = (f"🔥 {mention} **{display}** — {s['champion']} "
+                   f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
+        await send_or_queue(message.channel, content, kind="roast")
+    else:
+        # not in the latest game -> cocky general chat with channel context
+        convo = await _recent_context(message.channel, message.id)
+        line = await chat(
+            display, OLLAMA_URL, OLLAMA_MODEL, profile,
+            reason or "they tagged you with nothing to say",
+            get_summary(name), convo,
+            avoid=roast_memory.recent_roasts(name),
+        )
+        roast_memory.record_roast(name, line)
+        await send_or_queue(message.channel, f"{mention} {line}", kind="clapback")
 
 
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
+
     # Support both direct user mention and role mention (e.g. @Var_Bot as a role)
     bot_mentioned = client.user in message.mentions
     if not bot_mentioned and message.role_mentions and message.guild:
@@ -239,72 +341,68 @@ async def on_message(message):
     if not bot_mentioned:
         return
 
-    # find the target: first mentioned crew member that isn't the bot, else the sender
-    target_lol = None
+    # Build the target list from every mention that isn't the bot. Each becomes
+    # a (name, display, discord_id, profile) tuple. Crew members resolve to their
+    # crew.json key + profile; everyone else falls back to their Discord display
+    # name with an empty profile (plain roast, no persona ammo).
+    targets = []
+    seen_ids = set()
     for u in message.mentions:
-        if u == client.user:
+        if u == client.user or u.id in seen_ids:
             continue
-        name = lol_name_for_discord_id(CREW_CFG, u.id)
-        if name:
-            target_lol = name
-            target_discord_id = u.id
+        seen_ids.add(u.id)
+        lol_name = lol_name_for_discord_id(CREW_CFG, u.id)
+        if lol_name:
+            prof = profile_for(CREW_CFG, lol_name)
+            disp = prof.get("nickname") or lol_name
+            targets.append((lol_name, disp, u.id, prof))
+        else:
+            # not in crew.json -> plain roast by display name
+            targets.append((u.display_name, u.display_name, u.id, {}))
+        if len(targets) >= MAX_TAG_TARGETS:
             break
-    if not target_lol:
-        target_lol = lol_name_for_discord_id(CREW_CFG, message.author.id)
-        target_discord_id = message.author.id
 
-    if not target_lol:
-        await message.channel.send("I don't know who you are. Get good first.")
-        return
+    # No one tagged besides the bot -> roast the sender (crew member or not).
+    if not targets:
+        lol_name = lol_name_for_discord_id(CREW_CFG, message.author.id)
+        if lol_name:
+            prof = profile_for(CREW_CFG, lol_name)
+            disp = prof.get("nickname") or lol_name
+            targets.append((lol_name, disp, message.author.id, prof))
+        else:
+            targets.append((message.author.display_name,
+                            message.author.display_name,
+                            message.author.id, {}))
 
-    profile = profile_for(CREW_CFG, target_lol)
-    display = profile.get("nickname") or target_lol
-    mention = f"<@{target_discord_id}>"
-
-    # extract reason from message (everything after the mentions)
+    # extract reason: strip every mention out of the message text
     reason = message.clean_content
     for word in [f"@{u.display_name}" for u in message.mentions]:
         reason = reason.replace(word, "").strip()
     reason = reason.strip()
 
-    # Look for the target in the latest game. If they aren't in it, roast
-    # purely from their persona + whatever reason was given in the message.
+    # fetch the latest game once, shared across all targets
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
             games = await lcu.recent_games(0, 1)
             game = await lcu.game(games[0]["gameId"]) if games else None
     except LCUError:
         game = None
+    duration = game.get("gameDuration", 0) if game else 0
 
-    p = None
-    if game:
-        parts = LCUClient.participants(game)
-        duration = game.get("gameDuration", 0)
-        p = next(
-            (x for x in parts
-             if (x["riotIdGameName"] or x["summonerName"]).lower() == target_lol),
-            None,
-        )
-
-    if p:
-        # target played the latest game -> stats-based roast
-        s = summarize(p, duration)
-        record_game(target_lol, s)
-        streak = update_streak(target_lol, True)
-        line = await roast(target_lol, s, OLLAMA_URL, OLLAMA_MODEL, profile, streak, get_summary(target_lol))
-        await message.channel.send(
-            f"🔥 {mention} **{display}** — {s['champion']} "
-            f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}"
-        )
-    else:
-        # not in the latest game -> cocky general chat with channel context
-        convo = await _recent_context(message.channel, message.id)
-        line = await chat(
-            display, OLLAMA_URL, OLLAMA_MODEL, profile,
-            reason or "they tagged you with nothing to say",
-            get_summary(target_lol), convo,
-        )
-        await message.channel.send(f"{mention} {line}")
+    # roast each target independently: one failure doesn't sink the others.
+    for name, display, discord_id, profile in targets:
+        mention = f"<@{discord_id}>"
+        try:
+            await _handle_target(message, game, duration, name=name,
+                                  display=display, mention=mention,
+                                  profile=profile, reason=reason)
+        except Exception as e:
+            print(f"clapback generation failed for {name}: {e}")
+            await send_or_queue(
+                message.channel,
+                f"{mention} my brain lagged harder than your last teamfight. Tag me again.",
+                kind="clapback",
+            )
 
 
 if __name__ == "__main__":

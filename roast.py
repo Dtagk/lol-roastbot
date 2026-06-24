@@ -36,17 +36,31 @@ def _clean(text: str) -> str:
     return _THINK_RE.sub("", text).strip()
 
 
-async def _generate(ollama_url: str, model: str, prompt: str,
-                    num_predict: int = 6000, temperature: float = 0.9) -> str:
-    """Single call path for every generation. Guards against the silent
-    failure mode: gpt-oss burns its budget reasoning, _clean strips it, and
-    response comes back empty. Explicit timeout so a hang surfaces instead of
-    blocking the poll loop forever."""
+async def _generate(
+    ollama_url: str,
+    model: str,
+    prompt: str,
+    num_predict: int = 250,
+    temperature: float = 1.0,
+    repeat_penalty: float = 1.3,
+    presence_penalty: float = 0.6,
+    frequency_penalty: float = 0.3,
+    repeat_last_n: int = 256,
+) -> str:
+    """Single call path for every generation. Applies repetition penalties so
+    the model stops recycling the same phrasings game after game."""
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": temperature, "num_predict": num_predict},
+        "options": {
+            "temperature": temperature,
+            "num_predict": num_predict,
+            "repeat_penalty": repeat_penalty,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty,
+            "repeat_last_n": repeat_last_n,
+        },
         "think": False,
     }
     timeout = aiohttp.ClientTimeout(total=300)
@@ -55,6 +69,18 @@ async def _generate(ollama_url: str, model: str, prompt: str,
             r.raise_for_status()
             data = await r.json()
     return _clean(data.get("response", "")) or "...I got nothing. That one speaks for itself."
+
+
+def _avoid_block(avoid: list[str] | None) -> str:
+    """Tell the model not to reuse phrasings/jokes from recent roasts."""
+    if not avoid:
+        return ""
+    recent = "\n".join(f"- {a}" for a in avoid[-12:])
+    return (
+        "You have already used these roasts on this player recently. Do NOT reuse "
+        "their jokes, phrasing, or angle — say something different:\n"
+        f"{recent}\n"
+    )
 
 
 def _normalize_position(p: dict) -> str:
@@ -107,7 +133,7 @@ def shame_score(s: dict) -> int:
 
 def _prompt(
     name: str, s: dict, profile: dict | None = None, streak: dict | None = None,
-    history: dict | None = None,
+    history: dict | None = None, avoid: list[str] | None = None,
 ) -> str:
     profile = profile or {}
     result = "won" if s["win"] else "lost"
@@ -116,12 +142,15 @@ def _prompt(
     persona_line = ""
     if profile.get("persona"):
         persona_line = (
-            f"Context on this player: they are known as {profile['persona']}. "
-            f"Lean into that reputation.\n"
+            f"Optional context (use only if it makes the roast funnier): they're "
+            f"known as {profile['persona']}.\n"
         )
     personal_line = ""
     if profile.get("personal"):
-        personal_line = f"Personal facts: {'; '.join(profile['personal'])}.\n"
+        personal_line = (
+            f"Optional personal ammo (only if it fits naturally, don't force it): "
+            f"{'; '.join(profile['personal'])}.\n"
+        )
     streak_line = ""
     if streak and streak.get("streak", 0) > 1:
         streak_line = (
@@ -143,14 +172,16 @@ def _prompt(
     champ_burn = _CHAMP_BURNS.get(s["champion"], "")
     is_fav = s["champion"] in (profile.get("favorites") or [])
     fav_note = f" This is one of their declared favorite champions — no excuses." if is_fav else ""
-    champ_line = f"Champion note: {s['champion']} is known as {champ_burn}.{fav_note} Lean into it.\n" if (champ_burn or is_fav) else ""
+    champ_line = f"Champion note: {s['champion']} is known as {champ_burn}.{fav_note} Use it only if it lands.\n" if (champ_burn or is_fav) else ""
     if not champ_burn and is_fav:
         champ_line = f"Champion note: {s['champion']} is one of their declared mains — no excuses for this performance.\n"
 
     return (
         f"You are a blunt, sarcastic Discord bot roasting your friend group after their League games. "
         f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits, but never tries too hard. "
-        f"Write ONE roast (max 2 sentences, no preamble, no hashtags). Reference the actual stats.\n\n"
+        f"Write ONE roast (max 2 sentences, no preamble, no hashtags). Always reference "
+        f"the actual stats; persona and personal details are OPTIONAL flavour — skip "
+        f"them when a clean shot at the stats is funnier.\n\n"
         f"{persona_line}{personal_line}{streak_line}{history_line}{champ_line}"
         f"Player: {display}\n"
         f"Champion: {s['champion']} ({s['position']})\n"
@@ -158,6 +189,7 @@ def _prompt(
         f"KDA: {s['kills']}/{s['deaths']}/{s['assists']} ({s['kda']})\n"
         f"Damage dealt: {s['damage']}\n"
         f"Damage taken: {s['damage_taken']}\n\n"
+        f"{_avoid_block(avoid)}"
         f"Roast:"
     )
 
@@ -235,20 +267,30 @@ async def roast(
     profile: dict | None = None,
     streak: dict | None = None,
     history: dict | None = None,
+    avoid: list[str] | None = None,
 ) -> str:
     return await _generate(
-        ollama_url, model, _prompt(name, s, profile, streak, history)
+        ollama_url, model, _prompt(name, s, profile, streak, history, avoid)
     )
 
 
 def _chat_prompt(display: str, profile: dict | None, reason: str,
-                 history: dict | None = None, convo: str = "") -> str:
+                 history: dict | None = None, convo: str = "",
+                 avoid: list[str] | None = None) -> str:
     """Cocky general-chat reply when the target isn't in the latest game."""
     profile = profile or {}
     persona_line = (
-        f"You're talking to {display}, known as {profile['persona']}.\n"
+        f"Optional context (use only if it helps): {display} is known as "
+        f"{profile['persona']}.\n"
         if profile.get("persona") else ""
     )
+    personal_line = ""
+    if profile.get("personal"):
+        personal_line = (
+            f"Optional personal ammo about {display} (only these are fair game, "
+            f"and only if it lands — don't force it): "
+            f"{'; '.join(profile['personal'])}.\n"
+        )
     history_line = ""
     if history:
         history_line = (
@@ -256,11 +298,19 @@ def _chat_prompt(display: str, profile: dict | None, reason: str,
             f"{history['avg_deaths']} deaths, KDA {history['avg_kda']}.\n"
         )
     convo_line = f"Recent conversation:\n{convo}\n\n" if convo else ""
+    isolation_line = (
+        f"IMPORTANT: only roast {display}. Any names, relationships, or personal "
+        f"details mentioned in the conversation that are about OTHER people are "
+        f"off-limits — do not attribute them to {display} or bring them up.\n"
+    )
     return (
         f"You are a blunt, sarcastic Discord bot in a League of Legends friend group. "
         f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits. "
-        f"Reply to the latest message in 1-2 sentences. Clap back directly to what was said. No preamble, no hashtags.\n\n"
-        f"{persona_line}{history_line}{convo_line}"
+        f"Reply to the latest message in 1-2 sentences. It's totally fine to just clap "
+        f"back at what they said and ignore the persona/personal stuff — only use those "
+        f"if they make it funnier. No preamble, no hashtags.\n\n"
+        f"{persona_line}{personal_line}{history_line}{isolation_line}{convo_line}"
+        f"{_avoid_block(avoid)}"
         f"Latest message: {reason}\n\n"
         f"Reply:"
     )
@@ -269,7 +319,9 @@ def _chat_prompt(display: str, profile: dict | None, reason: str,
 async def chat(
     display: str, ollama_url: str, model: str, profile: dict | None = None,
     reason: str = "", history: dict | None = None, convo: str = "",
+    avoid: list[str] | None = None,
 ) -> str:
     return await _generate(
-        ollama_url, model, _chat_prompt(display, profile, reason, history, convo)
+        ollama_url, model,
+        _chat_prompt(display, profile, reason, history, convo, avoid)
     )
