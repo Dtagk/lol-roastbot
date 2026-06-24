@@ -40,7 +40,7 @@ async def _generate(
     ollama_url: str,
     model: str,
     prompt: str,
-    num_predict: int = 250,
+    num_predict: int = 400,
     temperature: float = 1.0,
     repeat_penalty: float = 1.3,
     presence_penalty: float = 0.6,
@@ -177,11 +177,11 @@ def _prompt(
         champ_line = f"Champion note: {s['champion']} is one of their declared mains — no excuses for this performance.\n"
 
     return (
-        f"You are a blunt, sarcastic Discord bot roasting your friend group after their League games. "
-        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits, but never tries too hard. "
-        f"Write ONE roast (max 2 sentences, no preamble, no hashtags). Always reference "
-        f"the actual stats; persona and personal details are OPTIONAL flavour — skip "
-        f"them when a clean shot at the stats is funnier.\n\n"
+        f"You are a savage, sarcastic Discord bot roasting your friend group after their League games. "
+        f"You talk like a close friend who pulls no punches — casual, cutting, drop a swear when it lands. "
+        f"ALWAYS respond in English only, no matter what. "
+        f"Write ONE roast (max 2 sentences, no preamble, no hashtags). Anchor it in the actual stats — go for the throat. "
+        f"Persona and personal details are OPTIONAL flavour, skip them when the numbers speak for themselves.\n\n"
         f"{persona_line}{personal_line}{streak_line}{history_line}{champ_line}"
         f"Player: {display}\n"
         f"Champion: {s['champion']} ({s['position']})\n"
@@ -217,8 +217,9 @@ def _persona_prompt(name: str, profile: dict, reason: str = "",
             parts.append(f"worst game ever: {w['deaths']} deaths on {w['champ']}")
         history_line = "History: " + "; ".join(parts) + ".\n"
     return (
-        f"You are a blunt, sarcastic Discord bot roasting your friend group after their League games. "
-        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits, but never tries too hard. "
+        f"You are a savage, sarcastic Discord bot roasting your friend group after their League games. "
+        f"You talk like a close friend who pulls no punches — casual, cutting, drop a swear when it lands. "
+        f"ALWAYS respond in English only, no matter what. "
         f"Write ONE roast about {display} (max 2 sentences, no preamble, no hashtags).\n\n"
         f"{persona_line}{personal_line}{reason_line}{history_line}"
         f"Roast:"
@@ -241,6 +242,7 @@ def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
     persona_line = f"Context: {profile['persona']}.\n" if profile.get("persona") else ""
     return (
         f"You are an over-the-top hype bot for a League of Legends friend group. "
+        f"ALWAYS respond in English only, no matter what. "
         f"Write ONE short, absurdly glowing tribute (max 2 sentences, no preamble) "
         f"about {display}'s last game. Go full sycophant — they are a god among players.\n\n"
         f"{persona_line}"
@@ -304,11 +306,10 @@ def _chat_prompt(display: str, profile: dict | None, reason: str,
         f"off-limits — do not attribute them to {display} or bring them up.\n"
     )
     return (
-        f"You are a blunt, sarcastic Discord bot in a League of Legends friend group. "
-        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits. "
-        f"Reply to the latest message in 1-2 sentences. It's totally fine to just clap "
-        f"back at what they said and ignore the persona/personal stuff — only use those "
-        f"if they make it funnier. No preamble, no hashtags.\n\n"
+        f"You are a savage, sarcastic Discord bot in a League of Legends friend group. "
+        f"You talk like a close friend who pulls no punches — casual, cutting, drop a swear when it lands. "
+        f"ALWAYS respond in English only, no matter what. "
+        f"Reply to the latest message in 1-2 sentences. Clap back hard — make it sting. No preamble, no hashtags.\n\n"
         f"{persona_line}{personal_line}{history_line}{isolation_line}{convo_line}"
         f"{_avoid_block(avoid)}"
         f"Latest message: {reason}\n\n"
