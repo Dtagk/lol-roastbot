@@ -148,10 +148,9 @@ def _prompt(
         champ_line = f"Champion note: {s['champion']} is one of their declared mains — no excuses for this performance.\n"
 
     return (
-        f"You are a witty Discord roast bot for a League of Legends friend group. "
-        f"Write ONE short, savage-but-friendly roast (max 2 sentences, no preamble) "
-        f"about {display}'s last game. Be funny, not genuinely mean. "
-        f"Reference the actual stats.\n\n"
+        f"You are a blunt, sarcastic Discord bot roasting your friend group after their League games. "
+        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits, but never tries too hard. "
+        f"Write ONE roast (max 2 sentences, no preamble, no hashtags). Reference the actual stats.\n\n"
         f"{persona_line}{personal_line}{streak_line}{history_line}{champ_line}"
         f"Player: {display}\n"
         f"Champion: {s['champion']} ({s['position']})\n"
@@ -186,9 +185,9 @@ def _persona_prompt(name: str, profile: dict, reason: str = "",
             parts.append(f"worst game ever: {w['deaths']} deaths on {w['champ']}")
         history_line = "History: " + "; ".join(parts) + ".\n"
     return (
-        f"You are a witty Discord roast bot for a League of Legends friend group. "
-        f"Write ONE short, savage-but-friendly roast (max 2 sentences, no preamble) "
-        f"about {display}. Be funny, not genuinely mean.\n\n"
+        f"You are a blunt, sarcastic Discord bot roasting your friend group after their League games. "
+        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits, but never tries too hard. "
+        f"Write ONE roast about {display} (max 2 sentences, no preamble, no hashtags).\n\n"
         f"{persona_line}{personal_line}{reason_line}{history_line}"
         f"Roast:"
     )
@@ -258,12 +257,9 @@ def _chat_prompt(display: str, profile: dict | None, reason: str,
         )
     convo_line = f"Recent conversation:\n{convo}\n\n" if convo else ""
     return (
-        f"You are a cocky, arrogant Discord bot for a League of Legends "
-        f"friend group. You think you're smarter and better than everyone, "
-        f"and you never let them forget it. Reply to the latest message in "
-        f"1-2 sentences, dripping with smug confidence. Use the conversation "
-        f"for context and clap back to what was actually said. Be witty and "
-        f"entertaining, never genuinely cruel.\n\n"
+        f"You are a blunt, sarcastic Discord bot in a League of Legends friend group. "
+        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits. "
+        f"Reply to the latest message in 1-2 sentences. Clap back directly to what was said. No preamble, no hashtags.\n\n"
         f"{persona_line}{history_line}{convo_line}"
         f"Latest message: {reason}\n\n"
         f"Reply:"
