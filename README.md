@@ -8,7 +8,9 @@ Discord bot that polls the League of Legends client after each game and posts Ol
 - For each new game, posts a score table with KDA, a 👑 MVP crown, and a ⚓ anchor
 - Roasts the worst player plus anyone over their own shame threshold, capped at 3
 - ~10% of games it glazes the MVP instead of roasting anyone
-- Also responds when @mentioned: stats-based roast if the target played the latest game, otherwise a persona-only roast driven by whatever reason you give
+- Also responds when @mentioned: stats-based roast if the target played the latest game, otherwise a cocky general-chat reply. The chat reply reads the last few channel messages for context, so you can have a back-and-forth — no roast keyword needed, just tag it and talk.
+
+> The @mention chat needs the **Read Message History** permission in the channel so the bot can pull recent context.
 
 ## Setup
 
