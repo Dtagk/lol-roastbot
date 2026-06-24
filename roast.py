@@ -36,6 +36,27 @@ def _clean(text: str) -> str:
     return _THINK_RE.sub("", text).strip()
 
 
+async def _generate(ollama_url: str, model: str, prompt: str,
+                    num_predict: int = 2000, temperature: float = 0.9) -> str:
+    """Single call path for every generation. Guards against the silent
+    failure mode: gpt-oss burns its budget reasoning, _clean strips it, and
+    response comes back empty. Explicit timeout so a hang surfaces instead of
+    blocking the poll loop forever."""
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"temperature": temperature, "num_predict": num_predict},
+        "think": False,
+    }
+    timeout = aiohttp.ClientTimeout(total=120)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
+            r.raise_for_status()
+            data = await r.json()
+    return _clean(data.get("response", "")) or "...I got nothing. That one speaks for itself."
+
+
 def _normalize_position(p: dict) -> str:
     """Common position vocabulary across Match-V5 and LCU.
 
@@ -177,18 +198,9 @@ async def roast_persona(
     name: str, ollama_url: str, model: str, profile: dict, reason: str = "",
     history: dict | None = None,
 ) -> str:
-    payload = {
-        "model": model,
-        "prompt": _persona_prompt(name, profile, reason, history),
-        "stream": False,
-        "options": {"temperature": 0.9, "num_predict": 600},
-        "think": False,
-    }
-    async with aiohttp.ClientSession() as sess:
-        async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
-            r.raise_for_status()
-            data = await r.json()
-    return _clean(data.get("response", ""))
+    return await _generate(
+        ollama_url, model, _persona_prompt(name, profile, reason, history)
+    )
 
 
 def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
@@ -213,18 +225,7 @@ def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
 async def glaze(
     name: str, s: dict, ollama_url: str, model: str, profile: dict | None = None
 ) -> str:
-    payload = {
-        "model": model,
-        "prompt": _glaze_prompt(name, s, profile),
-        "stream": False,
-        "options": {"temperature": 0.9, "num_predict": 600},
-        "think": False,
-    }
-    async with aiohttp.ClientSession() as sess:
-        async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
-            r.raise_for_status()
-            data = await r.json()
-    return _clean(data.get("response", ""))
+    return await _generate(ollama_url, model, _glaze_prompt(name, s, profile))
 
 
 async def roast(
@@ -236,15 +237,43 @@ async def roast(
     streak: dict | None = None,
     history: dict | None = None,
 ) -> str:
-    payload = {
-        "model": model,
-        "prompt": _prompt(name, s, profile, streak, history),
-        "stream": False,
-        "options": {"temperature": 0.9, "num_predict": 600},
-        "think": False,
-    }
-    async with aiohttp.ClientSession() as sess:
-        async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
-            r.raise_for_status()
-            data = await r.json()
-    return _clean(data.get("response", ""))
+    return await _generate(
+        ollama_url, model, _prompt(name, s, profile, streak, history)
+    )
+
+
+def _chat_prompt(display: str, profile: dict | None, reason: str,
+                 history: dict | None = None, convo: str = "") -> str:
+    """Cocky general-chat reply when the target isn't in the latest game."""
+    profile = profile or {}
+    persona_line = (
+        f"You're talking to {display}, known as {profile['persona']}.\n"
+        if profile.get("persona") else ""
+    )
+    history_line = ""
+    if history:
+        history_line = (
+            f"For ammo if relevant: last {history['games_tracked']} games avg "
+            f"{history['avg_deaths']} deaths, KDA {history['avg_kda']}.\n"
+        )
+    convo_line = f"Recent conversation:\n{convo}\n\n" if convo else ""
+    return (
+        f"You are a cocky, arrogant Discord bot for a League of Legends "
+        f"friend group. You think you're smarter and better than everyone, "
+        f"and you never let them forget it. Reply to the latest message in "
+        f"1-2 sentences, dripping with smug confidence. Use the conversation "
+        f"for context and clap back to what was actually said. Be witty and "
+        f"entertaining, never genuinely cruel.\n\n"
+        f"{persona_line}{history_line}{convo_line}"
+        f"Latest message: {reason}\n\n"
+        f"Reply:"
+    )
+
+
+async def chat(
+    display: str, ollama_url: str, model: str, profile: dict | None = None,
+    reason: str = "", history: dict | None = None, convo: str = "",
+) -> str:
+    return await _generate(
+        ollama_url, model, _chat_prompt(display, profile, reason, history, convo)
+    )

@@ -13,7 +13,7 @@ from discord.ext import tasks
 from lcu import LCUClient, LCUError, load_champion_map
 import random
 
-from roast import summarize, shame_score, roast, roast_persona, glaze
+from roast import summarize, shame_score, roast, roast_persona, glaze, chat
 from crew import load_crew, profile_for, update_streak, lol_name_for_discord_id
 from history import record_game, get_summary
 
@@ -206,6 +206,19 @@ async def roast_game(game: dict, channel) -> None:
         await channel.send(f"🔥 {mention}**{display}** — {s['champion']} {s['kills']}/{s['deaths']}/{s['assists']}\n{line}")
 
 
+async def _recent_context(channel, exclude_id: int, limit: int = 6) -> str:
+    """Last few channel messages as plain text for short-term clapback context.
+    Excludes the triggering message (added separately as the latest)."""
+    msgs = [m async for m in channel.history(limit=limit + 1)]
+    msgs.reverse()  # oldest first
+    lines = [
+        f"{m.author.display_name}: {m.clean_content}"
+        for m in msgs
+        if m.clean_content and m.id != exclude_id
+    ]
+    return "\n".join(lines[-limit:])
+
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
@@ -271,9 +284,14 @@ async def on_message(message):
             f"{s['kills']}/{s['deaths']}/{s['assists']}\n{line}"
         )
     else:
-        # not in the latest game -> persona-only roast, driven by the reason
-        line = await roast_persona(target_lol, OLLAMA_URL, OLLAMA_MODEL, profile, reason, get_summary(target_lol))
-        await message.channel.send(f"🔥 {mention} **{display}**\n{line}")
+        # not in the latest game -> cocky general chat with channel context
+        convo = await _recent_context(message.channel, message.id)
+        line = await chat(
+            display, OLLAMA_URL, OLLAMA_MODEL, profile,
+            reason or "they tagged you with nothing to say",
+            get_summary(target_lol), convo,
+        )
+        await message.channel.send(f"{mention} {line}")
 
 
 if __name__ == "__main__":
