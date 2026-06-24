@@ -145,7 +145,8 @@ async def poll():
                 new.append(g)
             for g in reversed(new):  # oldest-new first
                 try:
-                    await roast_game(g, channel)
+                    full = await lcu.game(g["gameId"])
+                    await roast_game(full, channel)
                 except Exception as e:
                     # Generation/fetch failed: queue the GAME ID so the next tick
                     # re-fetches and regenerates. Advancing last_seen below is now
@@ -347,10 +348,9 @@ async def on_message(message):
         return
 
     # "fetch" command: immediately roast the latest game without waiting for poll
-    clean = message.content
-    for u in message.mentions:
-        clean = clean.replace(f"<@{u.id}>", "").replace(f"<@!{u.id}>", "")
-    if clean.strip().lower() == "fetch":
+    import re as _re
+    clean = _re.sub(r"<@[!&]?\d+>", "", message.content).strip()
+    if clean.lower() == "fetch":
         channel = client.get_channel(CHANNEL_ID)
         try:
             async with LCUClient(LCU_LOCKFILE) as lcu:
@@ -402,11 +402,11 @@ async def on_message(message):
         reason = reason.replace(word, "").strip()
     reason = reason.strip()
 
-    # fetch the last 5 games once, shared across all targets;
-    # recent_games already contains full participant stats (no separate game() call needed)
+    # fetch the last 5 games (full data via game()) for target lookup
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
-            lcu_games = await lcu.recent_games(0, 5)
+            summaries = await lcu.recent_games(0, 5)
+            lcu_games = [await lcu.game(s["gameId"]) for s in summaries]
     except LCUError:
         lcu_games = []
 
