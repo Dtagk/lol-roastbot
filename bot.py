@@ -145,8 +145,7 @@ async def poll():
                 new.append(g)
             for g in reversed(new):  # oldest-new first
                 try:
-                    full = await lcu.game(g["gameId"])
-                    await roast_game(full, channel)
+                    await roast_game(g, channel)
                 except Exception as e:
                     # Generation/fetch failed: queue the GAME ID so the next tick
                     # re-fetches and regenerates. Advancing last_seen below is now
