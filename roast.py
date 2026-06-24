@@ -37,7 +37,7 @@ def _clean(text: str) -> str:
 
 
 async def _generate(ollama_url: str, model: str, prompt: str,
-                    num_predict: int = 2000, temperature: float = 0.9) -> str:
+                    num_predict: int = 6000, temperature: float = 0.9) -> str:
     """Single call path for every generation. Guards against the silent
     failure mode: gpt-oss burns its budget reasoning, _clean strips it, and
     response comes back empty. Explicit timeout so a hang surfaces instead of
