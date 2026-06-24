@@ -288,22 +288,27 @@ async def _recent_context(channel, exclude_id: int, limit: int = 6) -> str:
 MAX_TAG_TARGETS = int(os.environ.get("MAX_TAG_TARGETS", "3"))
 
 
-async def _handle_target(message, lcu_game, duration, *, name, display,
+async def _handle_target(message, lcu_games, *, name, display,
                          mention, profile, reason, sender=None):
     """Generate + send one clapback/roast for a single resolved target.
     `name` is the lookup key (lowercased lol name, or the display name for a
     non-crew user). Raises on generation failure so the caller can fall back."""
     p = None
-    if lcu_game:
-        parts = LCUClient.participants(lcu_game)
-        p = next(
+    duration = 0
+    for g in lcu_games:
+        parts = LCUClient.participants(g)
+        found = next(
             (x for x in parts
              if (x["riotIdGameName"] or x["summonerName"]).lower() == name.lower()),
             None,
         )
+        if found:
+            p = found
+            duration = g.get("gameDuration", 0)
+            break
 
     if p:
-        # target played the latest game -> stats-based roast
+        # target played a recent game -> stats-based roast
         s = summarize(p, duration)
         line = await roast(name, s, OLLAMA_URL, OLLAMA_MODEL, profile,
                            peek_streak(name), get_summary(name),
@@ -381,20 +386,19 @@ async def on_message(message):
         reason = reason.replace(word, "").strip()
     reason = reason.strip()
 
-    # fetch the latest game once, shared across all targets
+    # fetch the last 5 games once, shared across all targets;
+    # recent_games already contains full participant stats (no separate game() call needed)
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
-            games = await lcu.recent_games(0, 1)
-            game = await lcu.game(games[0]["gameId"]) if games else None
+            lcu_games = await lcu.recent_games(0, 5)
     except LCUError:
-        game = None
-    duration = game.get("gameDuration", 0) if game else 0
+        lcu_games = []
 
     # roast each target independently: one failure doesn't sink the others.
     for name, display, discord_id, profile in targets:
         mention = f"<@{discord_id}>"
         try:
-            await _handle_target(message, game, duration, name=name,
+            await _handle_target(message, lcu_games, name=name,
                                   display=display, mention=mention,
                                   profile=profile, reason=reason,
                                   sender=message.author.display_name)
