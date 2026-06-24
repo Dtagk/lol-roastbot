@@ -49,7 +49,7 @@ async def _generate(ollama_url: str, model: str, prompt: str,
         "options": {"temperature": temperature, "num_predict": num_predict},
         "think": False,
     }
-    timeout = aiohttp.ClientTimeout(total=120)
+    timeout = aiohttp.ClientTimeout(total=300)
     async with aiohttp.ClientSession(timeout=timeout) as sess:
         async with sess.post(f"{ollama_url}/api/generate", json=payload) as r:
             r.raise_for_status()

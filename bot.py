@@ -52,17 +52,21 @@ self_puuid: str = ""
 last_seen: int | None = seen.get("last_game_id")
 
 
-async def _warmup_ollama():
+async def _warmup_ollama() -> bool:
     import aiohttp
     try:
-        async with aiohttp.ClientSession() as s:
-            await s.post(f"{OLLAMA_URL}/api/generate", json={
+        timeout = aiohttp.ClientTimeout(total=300)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.post(f"{OLLAMA_URL}/api/generate", json={
                 "model": OLLAMA_MODEL, "prompt": "hi", "stream": False,
-                "options": {"num_predict": 1}
-            })
+                "think": False, "options": {"num_predict": 10},
+            }) as r:
+                await r.json()
         print(f"Ollama model {OLLAMA_MODEL} warmed up")
+        return True
     except Exception as e:
         print(f"Ollama warmup failed: {e}")
+        return False
 
 
 @client.event
@@ -70,7 +74,10 @@ async def on_ready():
     global self_puuid, last_seen
     print(f"Logged in as {client.user}")
     await load_champion_map()
-    await _warmup_ollama()
+    warmed = await _warmup_ollama()
+    channel = client.get_channel(CHANNEL_ID)
+    if warmed and channel:
+        await channel.send("🤖 online and ready to roast.")
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
             self_puuid = await lcu.current_puuid()
@@ -223,7 +230,13 @@ async def _recent_context(channel, exclude_id: int, limit: int = 6) -> str:
 async def on_message(message):
     if message.author == client.user:
         return
-    if client.user not in message.mentions:
+    # Support both direct user mention and role mention (e.g. @Var_Bot as a role)
+    bot_mentioned = client.user in message.mentions
+    if not bot_mentioned and message.role_mentions and message.guild:
+        member = message.guild.get_member(client.user.id)
+        if member:
+            bot_mentioned = any(r in member.roles for r in message.role_mentions)
+    if not bot_mentioned:
         return
 
     # find the target: first mentioned crew member that isn't the bot, else the sender
