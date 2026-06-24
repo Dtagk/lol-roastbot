@@ -7,7 +7,7 @@ import os
 import pathlib
 
 from dotenv import load_dotenv
-load_dotenv(encoding="utf-8-sig")
+load_dotenv(encoding="utf-8-sig", override=True)
 
 import discord
 from discord.ext import tasks
