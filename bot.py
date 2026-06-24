@@ -289,7 +289,7 @@ MAX_TAG_TARGETS = int(os.environ.get("MAX_TAG_TARGETS", "3"))
 
 
 async def _handle_target(message, lcu_game, duration, *, name, display,
-                         mention, profile, reason):
+                         mention, profile, reason, sender=None):
     """Generate + send one clapback/roast for a single resolved target.
     `name` is the lookup key (lowercased lol name, or the display name for a
     non-crew user). Raises on generation failure so the caller can fall back."""
@@ -322,6 +322,7 @@ async def _handle_target(message, lcu_game, duration, *, name, display,
             reason or "they tagged you with nothing to say",
             get_summary(name), convo,
             avoid=roast_memory.recent_roasts(name),
+            sender=sender,
         )
         roast_memory.record_roast(name, line)
         await send_or_queue(message.channel, f"{mention} {line}", kind="clapback")
@@ -395,7 +396,8 @@ async def on_message(message):
         try:
             await _handle_target(message, game, duration, name=name,
                                   display=display, mention=mention,
-                                  profile=profile, reason=reason)
+                                  profile=profile, reason=reason,
+                                  sender=message.author.display_name)
         except Exception as e:
             print(f"clapback generation failed for {name}: {e}")
             await send_or_queue(

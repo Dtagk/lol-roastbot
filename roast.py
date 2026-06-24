@@ -278,7 +278,8 @@ async def roast(
 
 def _chat_prompt(display: str, profile: dict | None, reason: str,
                  history: dict | None = None, convo: str = "",
-                 avoid: list[str] | None = None) -> str:
+                 avoid: list[str] | None = None,
+                 sender: str | None = None) -> str:
     """Cocky general-chat reply when the target isn't in the latest game."""
     profile = profile or {}
     persona_line = (
@@ -305,24 +306,27 @@ def _chat_prompt(display: str, profile: dict | None, reason: str,
         f"details mentioned in the conversation that are about OTHER people are "
         f"off-limits — do not attribute them to {display} or bring them up.\n"
     )
+    if sender and sender != display:
+        trigger_line = f"{sender} said: \"{reason}\"\n\nRoast {display}:"
+    else:
+        trigger_line = f"Latest message: {reason}\n\nReply:"
     return (
         f"You are a savage, sarcastic Discord bot in a League of Legends friend group. "
         f"You talk like a close friend who pulls no punches — casual, cutting, drop a swear when it lands. "
         f"ALWAYS respond in English only, no matter what. "
-        f"Reply to the latest message in 1-2 sentences. Clap back hard — make it sting. No preamble, no hashtags.\n\n"
+        f"Reply in 1-2 sentences. Clap back hard — make it sting. No preamble, no hashtags.\n\n"
         f"{persona_line}{personal_line}{history_line}{isolation_line}{convo_line}"
         f"{_avoid_block(avoid)}"
-        f"Latest message: {reason}\n\n"
-        f"Reply:"
+        f"{trigger_line}"
     )
 
 
 async def chat(
     display: str, ollama_url: str, model: str, profile: dict | None = None,
     reason: str = "", history: dict | None = None, convo: str = "",
-    avoid: list[str] | None = None,
+    avoid: list[str] | None = None, sender: str | None = None,
 ) -> str:
     return await _generate(
         ollama_url, model,
-        _chat_prompt(display, profile, reason, history, convo, avoid)
+        _chat_prompt(display, profile, reason, history, convo, avoid, sender)
     )
