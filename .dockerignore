@@ -5,6 +5,7 @@ seen.json
 streaks.json
 history.json
 queue.json
+roast_lines.json
 .venv
 __pycache__/
 *.pyc

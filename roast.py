@@ -40,7 +40,7 @@ async def _generate(
     ollama_url: str,
     model: str,
     prompt: str,
-    num_predict: int = 600,
+    num_predict: int = 250,
     temperature: float = 1.0,
     repeat_penalty: float = 1.3,
     presence_penalty: float = 0.6,
@@ -311,10 +311,11 @@ def _chat_prompt(display: str, profile: dict | None, reason: str,
     else:
         trigger_line = f"Latest message: {reason}\n\nReply:"
     return (
-        f"You are a savage, sarcastic Discord bot in a League of Legends friend group. "
-        f"You talk like a close friend who pulls no punches — casual, cutting, drop a swear when it lands. "
+        f"You are a blunt, sarcastic Discord bot in a League of Legends friend group. "
+        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits. "
         f"ALWAYS respond in English only, no matter what. "
-        f"Reply in 1-2 sentences. Clap back hard — make it sting. No preamble, no hashtags.\n\n"
+        f"Reply in 1-2 sentences. It's totally fine to just clap back at what they said and ignore "
+        f"the persona/personal stuff — only use those if they make it funnier. No preamble, no hashtags.\n\n"
         f"{persona_line}{personal_line}{history_line}{isolation_line}{convo_line}"
         f"{_avoid_block(avoid)}"
         f"{trigger_line}"
