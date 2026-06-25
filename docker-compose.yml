@@ -23,17 +23,11 @@ services:
     container_name: roastbot
     env_file: .env
     environment:
-      LCU_HOST: host.docker.internal
       OLLAMA_URL: http://ollama:11434
-      # Inside the container the Riot parent dir is mounted at /riot. The bot
-      # finds the lockfile under it (default: /riot/League of Legends/lockfile)
-      # and falls back to searching /riot if a patch relocated the install.
-      LCU_MOUNT_ROOT: /riot
+      # lcu_proxy.py runs on the host and forwards LCU requests from the
+      # container to 127.0.0.1 (LCU only listens on loopback).
+      LCU_PROXY_URL: http://host.docker.internal:58888
     volumes:
-      # Mount the Riot PARENT directory, not the League leaf folder — the
-      # parent is stable across patches that relocate the game install.
-      # Override the host path with LEAGUE_PARENT_DIR in .env if needed.
-      - "${LEAGUE_PARENT_DIR:-C:/Riot Games}:/riot:ro"
       - "./seen.json:/app/seen.json"
       - "./streaks.json:/app/streaks.json"
       - "./history.json:/app/history.json"

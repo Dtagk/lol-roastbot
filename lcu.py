@@ -106,18 +106,24 @@ class LCUClient:
         self._base = ""
 
     async def __aenter__(self):
-        port, password = read_lockfile(self._lockfile)
-        token = base64.b64encode(f"riot:{password}".encode()).decode()
-        # LCU uses a self-signed cert -> disable verification.
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        self._session = aiohttp.ClientSession(
-            headers={"Authorization": f"Basic {token}"},
-            connector=aiohttp.TCPConnector(ssl=ctx),
-        )
-        lcu_host = os.environ.get("LCU_HOST", "127.0.0.1")
-        self._base = f"https://{lcu_host}:{port}"
+        proxy_url = os.environ.get("LCU_PROXY_URL")
+        if proxy_url:
+            # Running in Docker: use the host-side lcu_proxy.py (plain HTTP, no auth).
+            self._session = aiohttp.ClientSession()
+            self._base = proxy_url.rstrip("/")
+        else:
+            port, password = read_lockfile(self._lockfile)
+            token = base64.b64encode(f"riot:{password}".encode()).decode()
+            # LCU uses a self-signed cert -> disable verification.
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            self._session = aiohttp.ClientSession(
+                headers={"Authorization": f"Basic {token}"},
+                connector=aiohttp.TCPConnector(ssl=ctx),
+            )
+            lcu_host = os.environ.get("LCU_HOST", "127.0.0.1")
+            self._base = f"https://{lcu_host}:{port}"
         return self
 
     async def __aexit__(self, *exc):
@@ -127,6 +133,9 @@ class LCUClient:
     async def _get(self, path: str) -> dict | list:
         assert self._session
         async with self._session.get(self._base + path) as r:
+            if r.status == 503:
+                body = await r.json(content_type=None)
+                raise LCUError(body.get("lcu_error", f"503 for {path}"))
             if r.status >= 400:
                 raise LCUError(f"{r.status} for {path}: {await r.text()}")
             return await r.json()
