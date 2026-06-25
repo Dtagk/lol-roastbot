@@ -3,6 +3,9 @@
 Listens on 0.0.0.0:LCU_PROXY_PORT (default 58888) and proxies requests to the
 local LCU HTTPS API (which only listens on 127.0.0.1). Lets the Dockerised bot
 reach the League client without needing a volume mount or host networking.
+
+Set LCU_PROXY_SECRET (same value in .env) to require an auth token on every
+request so the proxy isn't open to anyone on the LAN.
 """
 import asyncio, base64, os, pathlib, ssl
 from aiohttp import web, ClientSession, TCPConnector
@@ -12,6 +15,10 @@ LOCKFILE = pathlib.Path(os.environ.get(
     r"C:\Riot Games\League of Legends\lockfile",
 ))
 PORT = int(os.environ.get("LCU_PROXY_PORT", 58888))
+SECRET = os.environ.get("LCU_PROXY_SECRET", "")
+
+if not SECRET:
+    print("WARNING: LCU_PROXY_SECRET not set — proxy is open to anyone on the LAN.")
 
 
 def _lcu_creds() -> tuple[int, str]:
@@ -20,6 +27,12 @@ def _lcu_creds() -> tuple[int, str]:
 
 
 async def proxy(request: web.Request) -> web.Response:
+    if SECRET and request.headers.get("X-Proxy-Auth") != SECRET:
+        return web.Response(status=401, text="unauthorized")
+
+    if request.method != "GET":
+        return web.Response(status=405, text="method not allowed")
+
     try:
         lcu_port, pw = _lcu_creds()
     except (FileNotFoundError, OSError, ValueError, IndexError):
@@ -32,11 +45,8 @@ async def proxy(request: web.Request) -> web.Response:
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     async with ClientSession(connector=TCPConnector(ssl=ctx)) as s:
-        url = f"https://127.0.0.1:{lcu_port}{request.path_qs}"
-        async with s.request(
-            request.method, url,
-            headers={"Authorization": f"Basic {token}"},
-        ) as r:
+        url = f"https://127.0.0.1:{lcu_port}{request.rel_url}"
+        async with s.get(url, headers={"Authorization": f"Basic {token}"}) as r:
             return web.Response(
                 status=r.status, body=await r.read(),
                 content_type="application/json",
@@ -44,7 +54,7 @@ async def proxy(request: web.Request) -> web.Response:
 
 
 app = web.Application()
-app.router.add_route("*", "/{path_info:.*}", proxy)
+app.router.add_route("GET", "/{path_info:.*}", proxy)
 
 if __name__ == "__main__":
     print(f"LCU proxy listening on 0.0.0.0:{PORT} → {LOCKFILE}")

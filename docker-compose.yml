@@ -27,6 +27,7 @@ services:
       # lcu_proxy.py runs on the host and forwards LCU requests from the
       # container to 127.0.0.1 (LCU only listens on loopback).
       LCU_PROXY_URL: http://host.docker.internal:58888
+      LCU_PROXY_SECRET: ${LCU_PROXY_SECRET:-}
     volumes:
       - "./seen.json:/app/seen.json"
       - "./streaks.json:/app/streaks.json"

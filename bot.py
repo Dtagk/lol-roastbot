@@ -436,14 +436,6 @@ async def on_message(message):
     # Without this split, any mention becomes a roast victim (e.g. someone asks
     # the bot a question and an innocently-referenced friend gets roasted).
     other_mentions = [u for u in message.mentions if u != client.user]
-    # Strip mentions to inspect the bare instruction.
-    bare = _re.sub(r"<@[!&]?\d+>", "", message.content).strip().lower()
-    # Imperative directed at the mentioned users? Look for a directive verb.
-    _DIRECTIVE = _re.compile(
-        r"\b(roast|congrat|congrats|tell|say|destroy|cook|flame|"
-        r"clown|burn|grats|wreck)\b"
-    )
-    directive_at_mentions = bool(other_mentions) and bool(_DIRECTIVE.search(bare))
 
     # Build the target list. Each target is a (name, display, discord_id,
     # profile) tuple. Crew members resolve to their crew.json key + profile;
@@ -451,7 +443,7 @@ async def on_message(message):
     # profile (plain roast, no persona ammo).
     targets = []
     seen_ids = set()
-    if directive_at_mentions:
+    if other_mentions:
         for u in other_mentions:
             if u.id in seen_ids:
                 continue
@@ -467,8 +459,7 @@ async def on_message(message):
             if len(targets) >= MAX_TAG_TARGETS:
                 break
 
-    # No imperative target (a question/remark to the bot, or only the bot was
-    # tagged) -> reply to the SENDER. Any other mentions stay as context only.
+    # Only bot tagged (no other mentions) -> reply to the SENDER.
     if not targets:
         lol_name = lol_name_for_discord_id(CREW_CFG, message.author.id)
         if lol_name:

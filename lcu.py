@@ -109,7 +109,9 @@ class LCUClient:
         proxy_url = os.environ.get("LCU_PROXY_URL")
         if proxy_url:
             # Running in Docker: use the host-side lcu_proxy.py (plain HTTP, no auth).
-            self._session = aiohttp.ClientSession()
+            secret = os.environ.get("LCU_PROXY_SECRET", "")
+            headers = {"X-Proxy-Auth": secret} if secret else {}
+            self._session = aiohttp.ClientSession(headers=headers)
             self._base = proxy_url.rstrip("/")
         else:
             port, password = read_lockfile(self._lockfile)
