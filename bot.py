@@ -13,7 +13,7 @@ load_dotenv(encoding="utf-8-sig", override=True)
 import discord
 from discord.ext import tasks
 
-from lcu import LCUClient, LCUError, load_champion_map
+from lcu import LCUClient, LCUError, LCUMountError, load_champion_map
 import random
 from roast import summarize, shame_score, roast, glaze, chat
 from crew import load_crew, profile_for, update_streak, peek_streak, lol_name_for_discord_id
@@ -26,7 +26,7 @@ import roast_memory  # NEW: remembers recent roast lines to avoid repetition
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b")
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "120"))
 MIN_SHAME = int(os.environ.get("MIN_SHAME", "10"))
 LCU_LOCKFILE = os.environ.get("LCU_LOCKFILE")  # optional override
@@ -55,6 +55,9 @@ client = discord.Client(intents=intents)
 seen = load_seen()
 self_puuid: str = ""
 last_seen: int | None = seen.get("last_game_id")
+# Tracks whether we've already alerted on a broken mount, so the poll loop
+# logs it once rather than every tick. Reset to False on a successful poll.
+_mount_alerted: bool = False
 
 
 async def send_or_queue(channel, content: str, *, kind: str = "roast") -> None:
@@ -131,12 +134,13 @@ async def on_ready():
 
 @tasks.loop(seconds=POLL_SECONDS)
 async def poll():
-    global last_seen
+    global last_seen, _mount_alerted
     channel = client.get_channel(CHANNEL_ID)
     if channel is None:
         return
     try:
         async with LCUClient(LCU_LOCKFILE) as lcu:
+            _mount_alerted = False  # mount is healthy again; re-arm the alert
             # populate self_puuid lazily if startup LCU was unavailable
             global self_puuid
             if not self_puuid:
@@ -163,8 +167,15 @@ async def poll():
                     # safe because the game isn't lost — it lives in the queue.
                     print(f"roast failed {g.get('gameId')}: {e}")
                     queue_store.enqueue_regen(g["gameId"], channel.id, str(e))
+    except LCUMountError as e:
+        # Broken volume / relocated install — needs a human, so surface it
+        # loudly but only once per occurrence to avoid log spam every tick.
+        if not _mount_alerted:
+            print(f"[ALERT] LCU mount problem: {e}")
+            _mount_alerted = True
+        return
     except LCUError as e:
-        print(f"lcu poll failed (client closed?): {e}")
+        print(f"lcu poll: {e}")
         return
     if games:
         last_seen = games[0]["gameId"]
@@ -415,28 +426,49 @@ async def on_message(message):
             await channel.send("roast generation blew up, check logs.")
         return
 
-    # Build the target list from every mention that isn't the bot. Each becomes
-    # a (name, display, discord_id, profile) tuple. Crew members resolve to their
-    # crew.json key + profile; everyone else falls back to their Discord display
-    # name with an empty profile (plain roast, no persona ammo).
+    # Decide intent. A message that mentions other users can mean two very
+    # different things:
+    #   1. an imperative aimed at them — "roast @X", "say congrats to @X"
+    #      -> those users are the roast targets
+    #   2. a question or remark aimed at the BOT that merely references them —
+    #      "@Var_Bot is @X good mentally?", "do you think @X or @Y?"
+    #      -> the SENDER is the target; the others are just context
+    # Without this split, any mention becomes a roast victim (e.g. someone asks
+    # the bot a question and an innocently-referenced friend gets roasted).
+    other_mentions = [u for u in message.mentions if u != client.user]
+    # Strip mentions to inspect the bare instruction.
+    bare = _re.sub(r"<@[!&]?\d+>", "", message.content).strip().lower()
+    # Imperative directed at the mentioned users? Look for a directive verb.
+    _DIRECTIVE = _re.compile(
+        r"\b(roast|congrat|congrats|tell|say|destroy|cook|flame|"
+        r"clown|burn|grats|wreck)\b"
+    )
+    directive_at_mentions = bool(other_mentions) and bool(_DIRECTIVE.search(bare))
+
+    # Build the target list. Each target is a (name, display, discord_id,
+    # profile) tuple. Crew members resolve to their crew.json key + profile;
+    # everyone else falls back to their Discord display name with an empty
+    # profile (plain roast, no persona ammo).
     targets = []
     seen_ids = set()
-    for u in message.mentions:
-        if u == client.user or u.id in seen_ids:
-            continue
-        seen_ids.add(u.id)
-        lol_name = lol_name_for_discord_id(CREW_CFG, u.id)
-        if lol_name:
-            prof = profile_for(CREW_CFG, lol_name)
-            disp = prof.get("nickname") or lol_name
-            targets.append((lol_name, disp, u.id, prof))
-        else:
-            # not in crew.json -> plain roast by display name
-            targets.append((u.display_name, u.display_name, u.id, {}))
-        if len(targets) >= MAX_TAG_TARGETS:
-            break
+    if directive_at_mentions:
+        for u in other_mentions:
+            if u.id in seen_ids:
+                continue
+            seen_ids.add(u.id)
+            lol_name = lol_name_for_discord_id(CREW_CFG, u.id)
+            if lol_name:
+                prof = profile_for(CREW_CFG, lol_name)
+                disp = prof.get("nickname") or lol_name
+                targets.append((lol_name, disp, u.id, prof))
+            else:
+                # not in crew.json -> plain roast by display name
+                targets.append((u.display_name, u.display_name, u.id, {}))
+            if len(targets) >= MAX_TAG_TARGETS:
+                break
 
-    # No one tagged besides the bot -> roast the sender (crew member or not).
+    # No imperative target (a question/remark to the bot, or only the bot was
+    # tagged) -> reply to the SENDER. Any other mentions stay as context only.
     if not targets:
         lol_name = lol_name_for_discord_id(CREW_CFG, message.author.id)
         if lol_name:
@@ -448,10 +480,16 @@ async def on_message(message):
                             message.author.display_name,
                             message.author.id, {}))
 
-    # extract reason: strip every mention out of the message text
+    # Extract the reason/question text. Keep referenced people's names readable
+    # so the model has context ("...or BossDyr?" must not become "...or ?"),
+    # but drop the bot's own mention since it's just the trigger.
     reason = message.clean_content
-    for word in [f"@{u.display_name}" for u in message.mentions]:
-        reason = reason.replace(word, "").strip()
+    bot_handles = [f"@{client.user.display_name}"]
+    member = message.guild.get_member(client.user.id) if message.guild else None
+    if member and member.display_name:
+        bot_handles.append(f"@{member.display_name}")
+    for handle in bot_handles:
+        reason = reason.replace(handle, "").strip()
     reason = reason.strip()
 
     # fetch the last 5 games (full data via game()) for target lookup

@@ -106,7 +106,7 @@ async def main():
         s = summarize(me, m["info"]["gameDuration"])
         print(s, "shame=", shame_score(s))
         print(await roast(name, s, os.environ.get("OLLAMA_URL","http://localhost:11434"),
-                          os.environ.get("OLLAMA_MODEL","llama3.1:8b")))
+                          os.environ.get("OLLAMA_MODEL","qwen2.5:14b")))
 
 asyncio.run(main())
 ```

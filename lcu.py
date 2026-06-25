@@ -10,6 +10,7 @@ import base64
 import os
 import pathlib
 import ssl
+import time
 
 import aiohttp
 
@@ -18,14 +19,61 @@ class LCUError(Exception):
     pass
 
 
-def _default_lockfile() -> pathlib.Path:
-    # Windows default install; override with LCU_LOCKFILE env if elsewhere.
-    env = os.environ.get("LCU_LOCKFILE")
-    if env:
-        return pathlib.Path(env)
-    return pathlib.Path(
-        os.environ.get("ProgramFiles", r"C:\Riot Games"),
-    ).parent / "Riot Games" / "League of Legends" / "lockfile"
+class LCUMountError(LCUError):
+    """The mount root itself is missing/empty — a config or relocation problem
+    that needs a human, distinct from the client merely being closed."""
+    pass
+
+
+def _mount_root() -> pathlib.Path:
+    """The directory mounted into the container that *contains* the League
+    install. Defaults to the standard Riot parent dir. Mounting the parent
+    (not the leaf game folder) survives patches that relocate the install."""
+    return pathlib.Path(os.environ.get("LCU_MOUNT_ROOT", r"C:\Riot Games"))
+
+
+def _is_league_lockfile(path: pathlib.Path) -> bool:
+    """A lockfile is `ProcessName:PID:port:password:protocol`. Validate the
+    process name so we never point at a stray/non-League lockfile."""
+    try:
+        parts = path.read_text().strip().split(":")
+    except OSError:
+        return False
+    return len(parts) >= 5 and parts[0].lower().startswith("leagueclient")
+
+
+def _find_lockfile() -> pathlib.Path | None:
+    """Locate the live lockfile. Returns None if the client isn't running
+    (lockfile absent — a normal, expected state, e.g. during a patch).
+
+    Order: explicit override -> standard path -> search the mount root (only
+    if the install was relocated by a patch). Raises LCUMountError if the
+    mount root isn't visible at all (broken volume / wrong LCU_MOUNT_ROOT).
+    """
+    override = os.environ.get("LCU_LOCKFILE")
+    if override:
+        p = pathlib.Path(override)
+        return p if p.is_file() else None
+
+    root = _mount_root()
+    if not root.exists():
+        raise LCUMountError(
+            f"mount root {root} is not visible in the container. The volume "
+            f"mount is broken or League was moved — check the docker-compose "
+            f"volume and LCU_MOUNT_ROOT."
+        )
+
+    # Fast path: the standard location under the mounted parent.
+    default = root / "League of Legends" / "lockfile"
+    if default.is_file() and _is_league_lockfile(default):
+        return default
+
+    # Slow path: search the mount root. Only reached when the file isn't at
+    # the usual place — i.e. a patch relocated the install, or client closed.
+    for candidate in root.rglob("lockfile"):
+        if _is_league_lockfile(candidate):
+            return candidate
+    return None
 
 
 def read_lockfile(path: pathlib.Path | None = None) -> tuple[int, str]:
@@ -33,16 +81,22 @@ def read_lockfile(path: pathlib.Path | None = None) -> tuple[int, str]:
 
     Format: ProcessName:PID:port:password:protocol
     """
-    path = path or _default_lockfile()
-    if not path.is_file():
+    if path is None:
+        path = _find_lockfile()
+    if path is None or not path.is_file():
         raise LCUError(
-            f"lockfile not found at {path}. Is the League client running? "
-            f"Set LCU_LOCKFILE to its path if installed elsewhere."
+            "lockfile not found — the League client isn't running. "
+            "(This is normal when League is closed, e.g. during a patch.)"
         )
-    parts = path.read_text().strip().split(":")
-    if len(parts) < 5:
-        raise LCUError(f"unexpected lockfile format: {parts}")
-    return int(parts[2]), parts[3]
+    # Re-read may race with the client writing at launch; retry once on a
+    # malformed read before giving up.
+    for attempt in range(2):
+        parts = path.read_text().strip().split(":")
+        if len(parts) >= 5:
+            return int(parts[2]), parts[3]
+        if attempt == 0:
+            time.sleep(0.2)
+    raise LCUError(f"unexpected lockfile format: {parts}")
 
 
 class LCUClient:

@@ -6,6 +6,15 @@ import aiohttp
 import re
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+# Catch leaked placeholder tokens the model emits when it lacks a detail:
+# "Dr. ??", "Dr ?", "[name]", "<name>", bare "??".
+_PLACEHOLDER_RE = re.compile(
+    r"\b(?:Dr|Mr|Ms|Mrs)\.?\s*\?+|\?{2,}|\[[^\]]*\]|<[^>]*>"
+)
+# Keep at most the first two sentences — matches the prompt instruction and
+# acts as a backstop against runaway ramble without amputating good two-beat
+# roasts (stat sentence + punchline).
+_TWO_SENTENCE_RE = re.compile(r"^\s*(?:[^.!?]*[.!?]){1,2}", re.DOTALL)
 
 _CHAMP_BURNS = {
     "Yasuo": "the champion of players who blame lag and wind",
@@ -32,15 +41,21 @@ _CHAMP_BURNS = {
 
 
 def _clean(text: str) -> str:
-    """Strip any leaked reasoning block and surrounding whitespace."""
-    return _THINK_RE.sub("", text).strip()
+    """Strip leaked reasoning, placeholder tokens, and trailing ramble."""
+    text = _THINK_RE.sub("", text)
+    text = _PLACEHOLDER_RE.sub("", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    text = re.sub(r",\s*(?=[—\-])", " ", text).strip(" ,;:")
+    m = _TWO_SENTENCE_RE.match(text)
+    return (m.group(0) if m else text).strip()
 
 
 async def _generate(
     ollama_url: str,
     model: str,
     prompt: str,
-    num_predict: int = 250,
+    num_predict: int = 160,
     temperature: float = 1.0,
     repeat_penalty: float = 1.3,
     presence_penalty: float = 0.6,
@@ -60,6 +75,7 @@ async def _generate(
             "presence_penalty": presence_penalty,
             "frequency_penalty": frequency_penalty,
             "repeat_last_n": repeat_last_n,
+            "stop": ["\n\n"],
         },
         "think": False,
     }
@@ -220,7 +236,9 @@ def _persona_prompt(name: str, profile: dict, reason: str = "",
         f"You are a savage, sarcastic Discord bot roasting your friend group after their League games. "
         f"You talk like a close friend who pulls no punches — casual, cutting, drop a swear when it lands. "
         f"ALWAYS respond in English only, no matter what. "
-        f"Write ONE roast about {display} (max 2 sentences, no preamble, no hashtags).\n\n"
+        f"Write ONE roast about {display} (max 2 sentences, no preamble, no hashtags).\n"
+        f"Never output placeholder text like '??', '[name]', or 'Dr. ?'. If you "
+        f"don't know a detail, leave it out and commit to the joke with what you have.\n\n"
         f"{persona_line}{personal_line}{reason_line}{history_line}"
         f"Roast:"
     )
@@ -306,17 +324,28 @@ def _chat_prompt(display: str, profile: dict | None, reason: str,
         f"details mentioned in the conversation that are about OTHER people are "
         f"off-limits — do not attribute them to {display} or bring them up.\n"
     )
+    guard_line = (
+        "Never output placeholder text like '??', '[name]', or 'Dr. ?'. If you "
+        "don't know a detail, leave it out and commit to the joke.\n"
+    )
     if sender and sender != display:
-        trigger_line = f"{sender} said: \"{reason}\"\n\nRoast {display}:"
+        trigger_line = (
+            f"{sender} said this about {display}: \"{reason}\"\n"
+            f"Answer the premise directly while roasting {display}. "
+            f"Do not change the subject or invent unrelated drama.\n\nRoast {display}:"
+        )
     else:
-        trigger_line = f"Latest message: {reason}\n\nReply:"
+        trigger_line = (
+            f"{display} said: \"{reason}\"\n"
+            f"Reply directly to what they actually said — answer the question or "
+            f"clap back at the premise. Do not change the subject.\n\nReply:"
+        )
     return (
-        f"You are a blunt, sarcastic Discord bot in a League of Legends friend group. "
-        f"You talk like a close friend who doesn't censor himself — casual, sharp, occasionally drops a swear if it fits. "
+        f"You are a savage, sarcastic Discord bot in a League of Legends friend group. "
+        f"You talk like a close friend who pulls no punches — casual, cutting, drop a swear when it lands. "
         f"ALWAYS respond in English only, no matter what. "
-        f"Reply in 1-2 sentences. It's totally fine to just clap back at what they said and ignore "
-        f"the persona/personal stuff — only use those if they make it funnier. No preamble, no hashtags.\n\n"
-        f"{persona_line}{personal_line}{history_line}{isolation_line}{convo_line}"
+        f"Reply in 1-2 sentences. Clap back hard — make it sting. No preamble, no hashtags.\n\n"
+        f"{persona_line}{personal_line}{history_line}{isolation_line}{guard_line}{convo_line}"
         f"{_avoid_block(avoid)}"
         f"{trigger_line}"
     )

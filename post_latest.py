@@ -10,7 +10,7 @@ from crew import load_crew, profile_for, update_streak
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b")
 MIN_SHAME = int(os.environ.get("MIN_SHAME", "10"))
 CREW = {c.strip().lower() for c in os.environ.get("CREW", "").split(",") if c.strip()}
 CREW_CFG = load_crew()

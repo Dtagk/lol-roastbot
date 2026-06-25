@@ -18,7 +18,7 @@ Discord bot that polls the League of Legends client after each game and posts Ol
 - League of Legends client installed and running
 - Docker (for the bot container, and optionally Ollama — see below)
 - A Discord bot token and channel ID
-- An Ollama model pulled (default: `qwen2.5:7b`)
+- An Ollama model pulled (default: `qwen2.5:14b`)
 
 ### 2. Configure
 
@@ -50,27 +50,31 @@ Create `crew.json` (gitignored — contains private Discord IDs):
 
 ### 3. Model choice
 
-Roasts are short and need wit more than reasoning. `qwen2.5:7b` is the default —
-it's clever enough for good roasts, fits comfortably in 16 GB alongside the League
-client, and responds effectively instantly on a 5060 Ti. On a 16 GB GPU:
+Roasts are short and need wit more than reasoning. `qwen2.5:14b` is the default —
+it follows the one-sentence / English-only / no-placeholder instructions far more
+reliably than the 7B, and at Q4 (~9 GB) still fits comfortably in 16 GB alongside
+the League client on a 5060 Ti. See `SWITCHING_MODELS.md` for how to change it.
+On a 16 GB GPU:
 
 | Model            | Size    | Notes                                            |
 | ---------------- | ------- | ------------------------------------------------ |
-| `qwen2.5:7b`     | ~4.7 GB | Default. Sharp roasts, plenty of headroom.       |
-| `llama3.2:3b`    | ~2 GB   | Leaner/faster cold start; obvious-joke ceiling.  |
-| `phi3.5`         | ~2.2 GB | Solid lightweight alternative.                   |
-| `gpt-oss:20b`    | MoE     | Wittiest, but see the warning below.             |
+| `qwen2.5:14b`    | ~9 GB   | Default. Best instruction-following for the card.|
+| `qwen2.5:7b`     | ~4.7 GB | Leaner/faster; weaker at holding length & English.|
+| `gemma3:12b`     | ~8 GB   | Strong multilingual discipline; can soften swears.|
+| `gpt-oss:20b`    | ~16 GB  | Reasoning model — see the warning below.         |
 
-**Warning on `num_predict`:** this patch caps generation at `num_predict=250` in
-`roast.py`, which is correct for qwen2.5 / llama3.2 / phi3.5 (no reasoning block).
-Do NOT use that cap with a reasoning model like `gpt-oss:20b` — it burns tokens on
-a `<think>` block that gets stripped, so the budget truncates mid-reasoning and
-returns an empty roast. If you run gpt-oss, raise `num_predict` back to ~6000.
+**Warning on reasoning models:** `roast.py` caps generation at `num_predict=160`.
+That's fine for non-reasoning models (qwen2.5 / gemma3 / llama3.2 / phi3.5), which
+spend the whole budget on the roast. Do NOT use a reasoning model like
+`gpt-oss:20b` — it burns the budget on a `<think>` block that gets stripped, so the
+cap truncates mid-reasoning and the length is impossible to tune consistently.
+Stick with a non-reasoning model and you can safely lower `num_predict` (~80) to
+tighten the roasts.
 
 Pull whichever you set in `.env`:
 
 ```
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:14b
 ```
 
 ### 4. Run
@@ -80,7 +84,7 @@ depends on the external `gym-knowledge-repository` / `start_ollama.ps1`:
 
 ```
 docker compose up -d --build
-docker compose exec ollama ollama pull qwen2.5:7b   # first run only
+docker compose exec ollama ollama pull qwen2.5:14b   # first run only
 ```
 
 **Prefer Ollama running natively on Windows?** (GPU access is simpler that way.)
