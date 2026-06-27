@@ -254,7 +254,9 @@ async def roast_game(game: dict, channel) -> None:
     print(f"candidates={len(candidates)} always_glaze={always_glaze}")
     if not always_glaze and random.random() < 0.1:
         mvp_name, mvp_s, mvp_profile = mvp
-        line = await glaze(mvp_name, mvp_s, OLLAMA_URL, OLLAMA_MODEL, mvp_profile)
+        line = await glaze(mvp_name, mvp_s, OLLAMA_URL, OLLAMA_MODEL, mvp_profile,
+                           avoid=roast_memory.recent_roasts(mvp_name))
+        roast_memory.record_roast(mvp_name, line)
         display = mvp_profile.get("nickname") or mvp_name
         mention = f"<@{mvp_profile['discord_id']}> " if mvp_profile.get("discord_id") else ""
         await send_or_queue(channel, f"{'🏆' if won else '💀'} **{result}** ({mins} min)\n```\n{table}\n```")

@@ -253,7 +253,8 @@ async def roast_persona(
     )
 
 
-def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
+def _glaze_prompt(name: str, s: dict, profile: dict | None = None,
+                  avoid: list[str] | None = None) -> str:
     profile = profile or {}
     display = profile.get("nickname") or name
     result = "won" if s["win"] else "lost"
@@ -262,21 +263,24 @@ def _glaze_prompt(name: str, s: dict, profile: dict | None = None) -> str:
         f"You are an over-the-top hype bot for a League of Legends friend group. "
         f"ALWAYS respond in English only, no matter what. "
         f"Write ONE short, absurdly glowing tribute (max 2 sentences, no preamble) "
-        f"about {display}'s last game. Go full sycophant — they are a god among players.\n\n"
+        f"about {display}'s last game. Go full sycophant — they are a god among players. "
+        f"Vary your style every time — different opening word, different angle.\n\n"
         f"{persona_line}"
         f"Player: {display}\n"
         f"Champion: {s['champion']} ({s['position']})\n"
         f"Result: {result} in {s['duration_min']} min\n"
         f"KDA: {s['kills']}/{s['deaths']}/{s['assists']} ({s['kda']})\n"
         f"Damage dealt: {s['damage']}\n\n"
+        f"{_avoid_block(avoid)}"
         f"Glaze:"
     )
 
 
 async def glaze(
-    name: str, s: dict, ollama_url: str, model: str, profile: dict | None = None
+    name: str, s: dict, ollama_url: str, model: str, profile: dict | None = None,
+    avoid: list[str] | None = None,
 ) -> str:
-    return await _generate(ollama_url, model, _glaze_prompt(name, s, profile))
+    return await _generate(ollama_url, model, _glaze_prompt(name, s, profile, avoid))
 
 
 async def roast(
