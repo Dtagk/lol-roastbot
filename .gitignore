@@ -3,5 +3,8 @@ crew.json
 .venv/
 seen.json
 streaks.json
+roast_lines.json
+history.json
+queue.json
 __pycache__/
 *.pyc

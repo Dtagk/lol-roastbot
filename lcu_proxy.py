@@ -57,5 +57,5 @@ app = web.Application()
 app.router.add_route("GET", "/{path_info:.*}", proxy)
 
 if __name__ == "__main__":
-    print(f"LCU proxy listening on 0.0.0.0:{PORT} → {LOCKFILE}")
+    print(f"LCU proxy listening on 0.0.0.0:{PORT} -> {LOCKFILE}")
     web.run_app(app, host="0.0.0.0", port=PORT, print=None)
