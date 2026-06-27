@@ -68,6 +68,7 @@ async def _generate(
         "model": model,
         "prompt": prompt,
         "stream": False,
+        "keep_alive": "2h",
         "options": {
             "temperature": temperature,
             "num_predict": num_predict,

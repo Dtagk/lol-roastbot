@@ -99,7 +99,7 @@ async def _warmup_ollama() -> bool:
         async with aiohttp.ClientSession(timeout=timeout) as s:
             async with s.post(f"{OLLAMA_URL}/api/generate", json={
                 "model": OLLAMA_MODEL, "prompt": "hi", "stream": False,
-                "think": False, "options": {"num_predict": 10},
+                "keep_alive": "2h", "think": False, "options": {"num_predict": 10},
             }) as r:
                 await r.json()
         print(f"Ollama model {OLLAMA_MODEL} warmed up")
